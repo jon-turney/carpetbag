@@ -20,7 +20,7 @@ VMID=CBS_1
 SRCPKG='dmalloc-5.5.2-2-src.tar.xz'
 
 "${VBM}" clonevm ${BASE_VMID} --snapshot ${BASE_SNAPSHOT} --options link --name ${VMID} --register
-"${VBM}" startvm ${VMID} --type headless
+"${VBM}" startvm ${VMID} --type headlessxo
 
 # currently broken in virtualbox 5.0, use 4.3
 "${VBM}" guestcontrol ${VMID} mkdir --username carpetbag --password carpetbag --parents 'C:\carpetbag'
@@ -28,6 +28,7 @@ for i in carpetbag.sh u2d_wrapper.sh ${SRCPKG} guessed_depends ; do
     "${VBM}" guestcontrol ${VMID} copyto --username carpetbag --password carpetbag $(cygpath -wa $i) 'C:\carpetbag\'$i
 done
 "${VBM}" guestcontrol ${VMID} execute --username carpetbag --password carpetbag --wait-exit --wait-stdout --wait-stderr --image C:\\cygwin\\bin\\bash.exe -- '-l' '/cygdrive/c/carpetbag/u2d_wrapper.sh' ${SRCPKG} >vm.log
+
 
 cat vm.log
 echo

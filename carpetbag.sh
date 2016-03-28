@@ -4,14 +4,16 @@
 pwd
 echo $@
 
-# avoid output colourization
-export TERM=dumb
-
-# SRCPKG names the SRCPKG
+# SRCPKG names the source package filename
 SRCPKG=$1
+# OUTDIR names the directory where output is placed
+OUTDIR=${2:-/carpetbag.out}
+
+# extract PVR
+PVR=${SRCPKG%-src.tar.*}
 
 BUILDDIR=/build
-ARCH=x86
+ARCH=x86_64
 
 #
 # given a src package
@@ -19,7 +21,7 @@ ARCH=x86
 # - unpack the src package
 # - if it's cygport has DEPENDS
 # -- install it's build-deps
-# -- otherwise we have to guess, or rely on an external database of build-deps
+# -- otherwise used guess_depends, which can be produced by guessing heuristic or an external database of build-deps
 # - build the package
 # - verify the build binary packages contain the same filelist as the supplied ones ?
 #
@@ -55,3 +57,10 @@ cygport ${CYGPORT} prep || exit
 cygport ${CYGPORT} compile || exit
 cygport ${CYGPORT} install || exit
 cygport ${CYGPORT} package || exit
+
+# copy build products to OUTDIR and write a file manifest
+rm -rf ${OUTDIR}
+mkdir -p ${OUTDIR}
+cp -a ${PVR}.${ARCH}/dist ${OUTDIR}
+cd ${OUTDIR}
+find -type f >manifest
