@@ -36,7 +36,7 @@ VBM="/cygdrive/c/Program Files/Oracle/VirtualBox/VBoxManage"
 # package unix2dos installed
 # package cygport installed
 #
-BASE_VMID='Carpetbag_test'
+BASE_VMID='Carpetbag'
 BASE_SNAPSHOT='Snapshot'
 
 # initialize persistent jobid
@@ -47,36 +47,73 @@ try:
 except IOError:
     pass
 
-print(jobid)
+
+def abswinpath(path):
+    return subprocess.check_output(["cygpath", "-wa", path]).strip()
 
 #
-#
+# clone a fresh VM, build the given |srcpkg| in it, retrieve the build products
+# to |outdir|, and discard the VM
 #
 
-def build(srcpkg):
+def build(srcpkg, outdir):
     global jobid
     jobid = jobid + 1
     with open('.jobid', 'w') as f:
         f.write(str(jobid))
 
+    print('jobid %d: building %s to %s' % (jobid, srcpkg, outdir))
+
     vmid = 'buildvm_%d' % jobid
     credentials = "--username carpetbag --password carpetbag"
 
+    # XXX: create depends, which can be produced by guessing heuristic or an
+    # external database of build-deps
+
+    # create VM
     vbm("clonevm " + BASE_VMID + " --snapshot " + BASE_SNAPSHOT + " --options link --name " + vmid + " --register")
     vbm("startvm " + vmid + " --type headless")
-    vbm("guestcontrol " + vmid + " mkdir " + credentials + " --parents C:\carpetbag")
-    for f in ['carpetbag.sh', 'u2d_wrapper.sh', 'guessed_depends', srcpkg]:
-        print(f)
-        abswinpath = subprocess.check_output(["cygpath", "-wa", f]).strip()
-        vbm("guestcontrol " + vmid + " copyto " + credentials + " " + abswinpath + " C:\\carpetbag\\" + os.path.basename(f))
 
-    vbm("guestcontrol " + vmid + " execute " + credentials + " --wait-exit --wait-stdout --wait-stderr --image C:\\cygwin\\bin\\bash.exe -- -l /cygdrive/c/carpetbag/u2d_wrapper.sh " + srcpkg)
+    # install build instructions and source
+    vbm("guestcontrol " + vmid + " mkdir " + credentials + " --parents C:\\vm_in")
+    for f in ['carpetbag.sh', 'u2d_wrapper.sh', 'guessed_depends', srcpkg]:
+        vbm("guestcontrol " + vmid + " copyto " + credentials + " " + abswinpath(f) + " C:\\vm_in\\" + os.path.basename(f))
+
+    # attempt the build
+    success = vbm("guestcontrol " + vmid + " execute " + credentials + " --wait-exit --wait-stdout --wait-stderr --image C:\\cygwin\\bin\\bash.exe -- -l /cygdrive/c/vm_in/u2d_wrapper.sh " + os.path.basename(srcpkg) + " C:\\vm_out")
+
+    # if the build was successful, fetch build products from VM
+    if success:
+        manifest = os.path.join(outdir, 'manifest')
+        vbm("guestcontrol " + vmid + " copyfrom " + credentials + " C:\\vm_out\\manifest " + abswinpath(manifest))
+
+        with open(manifest) as f:
+            for l in f:
+                l = l.strip()
+                print(l)
+                fn = os.path.join(outdir, l)
+                winpath = subprocess.check_output(["cygpath", "-w", l]).strip()
+                vbm("guestcontrol " + vmid + " copyfrom " + credentials + " C:\\vm_out\\" + winpath + " " + abswinpath(fn))
+
+    # clean up VM
     vbm("controlvm " + vmid + " poweroff")
     # XXX it seems we need to wait while vbox process exits
     time.sleep(1)
     vbm("unregistervm " + vmid + " --delete")
 
+    return success
+
+
 def vbm(subcommand):
     print(subcommand)
-    # log = subprocess.check_output([VBM, subcommand], stderr=subprocess.STDOUT)
-    # print(log)
+    result = False
+
+    try:
+        log = subprocess.check_output([VBM] + subcommand.split(), stderr=subprocess.STDOUT)
+    except subprocess.CalledProcessError as e:
+        log = e.output
+    else:
+        result = True
+
+    print(log)
+    return result

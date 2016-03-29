@@ -23,17 +23,20 @@
 
 import errno
 import os
+import shutil
+import tempfile
 
 import fsq
 from builder import build
 
-#fsq.set_const('FSQ_ROOT', '/foo/fsq')
-QUEUE = 'cpbq'
-UPLOADS = '/uploads'
+carpetbag_root = '/carpetbag'
+fsq_root = os.path.join(carpetbag_root, 'fsq')
+UPLOADS = os.path.join(carpetbag_root, 'uploads')
 
-fsq_root = fsq.const('FSQ_ROOT')
+fsq.set_const('FSQ_ROOT', fsq_root)
+QUEUE = 'package_build_q'
 
-# ensure FSQ_ROOT exists
+# ensure FSQ_ROOT directory exists
 try:
     os.makedirs(fsq_root)
 except OSError as e:
@@ -52,9 +55,24 @@ except fsq.exceptions.FSQInstallError as e:
     else:
         raise
 
+print('waiting for work on queue %s in %s' % (QUEUE, fsq_root))
+print('uploaded files will be in %s' % (UPLOADS))
+
 # look for work in queue
 for work in fsq.scan_forever(QUEUE):
-    print(' '.join(work.arguments))
-    # only argument is the relative path of the srckg file
-    build(os.path.join(UPLOADS, work.arguments[0]))
-    fsq.done(work)
+    # only argument is the relative path of the srcpkg file
+    srcpkg = os.path.join(UPLOADS, work.arguments[0])
+    outdir = tempfile.mkdtemp(prefix='carpetbag')
+
+    if build(srcpkg, outdir):
+        fsq.done(work)
+
+        # XXX:
+        # verify the set of built binary packages is the same
+        # verify each built binary package contain the same filelist
+
+        # XXX: clean up by removing srcpkg from uploads
+    else:
+        fsq.fail(work)
+
+    shutil.rmtree(outdir)
