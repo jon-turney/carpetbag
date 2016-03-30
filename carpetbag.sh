@@ -70,6 +70,6 @@ cygport ${CYGPORT} package || exit 1
 # copy build products to OUTDIR and write a file manifest
 rm -rf ${OUTDIR}
 mkdir -p ${OUTDIR}
-cp -a ${PVR}.${ARCH}/dist ${OUTDIR}
+cp -aT ${PVR}.${ARCH}/dist ${OUTDIR}
 cd ${OUTDIR}
 find -type f >manifest

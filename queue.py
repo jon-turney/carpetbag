@@ -28,6 +28,7 @@ import tempfile
 
 import fsq
 from builder import build
+from verify import verify
 
 carpetbag_root = '/carpetbag'
 fsq_root = os.path.join(carpetbag_root, 'fsq')
@@ -60,17 +61,20 @@ print('uploaded files will be in %s' % (UPLOADS))
 
 # look for work in queue
 for work in fsq.scan_forever(QUEUE):
-    # only argument is the relative path of the srcpkg file
+    # the queue item's only argument is the relative path of the srcpkg file
     srcpkg = os.path.join(UPLOADS, work.arguments[0])
-    outdir = tempfile.mkdtemp(prefix='carpetbag')
+    reldir = os.path.dirname(work.arguments[0])
+
+    outdir = tempfile.mkdtemp(prefix='carpetbag_')
+    indir = os.path.join(UPLOADS, reldir)
 
     if build(srcpkg, outdir):
+        if verify(indir, os.path.join(outdir, reldir)):
+            print('package verified')
+        else:
+            print('package not verified')
+
         fsq.done(work)
-
-        # XXX:
-        # verify the set of built binary packages is the same
-        # verify each built binary package contain the same filelist
-
         # XXX: clean up by removing srcpkg from uploads
     else:
         fsq.fail(work)

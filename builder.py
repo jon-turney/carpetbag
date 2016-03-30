@@ -55,6 +55,8 @@ def abswinpath(path):
 # clone a fresh VM, build the given |srcpkg| in it, retrieve the build products
 # to |outdir|, and discard the VM
 #
+# Note that guestcontrol seems to have various bugs in VirtualBox 5.0 which
+# currently make this unworkable, so use VirtualBox 4.3
 
 def build(srcpkg, outdir):
     global jobid
@@ -90,7 +92,7 @@ def build(srcpkg, outdir):
         with open(manifest) as f:
             for l in f:
                 l = l.strip()
-                print(l)
+                # print(l)
                 fn = os.path.join(outdir, l)
                 winpath = subprocess.check_output(["cygpath", "-w", l]).strip()
                 vbm("guestcontrol " + vmid + " copyfrom " + credentials + " C:\\vm_out\\" + winpath + " " + abswinpath(fn))
