@@ -1,4 +1,4 @@
-#!/usr/bin/env python2
+#!/usr/bin/env python3
 #
 # Copyright (c) 2016 Jon Turney
 #
@@ -50,7 +50,6 @@ def datadiff(a, b):
 def verify_archive(af, bf):
     return True
 
-    # XXX: this needs python3 to work on .xz files...
     with tarfile.open(af) as a:
         al = a.getnames()
     with tarfile.open(bf) as b:

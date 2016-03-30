@@ -1,4 +1,4 @@
-#!/usr/bin/env python2
+#!/usr/bin/env python3
 #
 # Copyright (c) 2016 Jon Turney
 #
@@ -25,58 +25,49 @@ import errno
 import os
 import shutil
 import tempfile
+import time
 
-import fsq
+from dirq.QueueSimple import QueueSimple
 from builder import build
 from verify import verify
 
 carpetbag_root = '/carpetbag'
-fsq_root = os.path.join(carpetbag_root, 'fsq')
+q_root = os.path.join(carpetbag_root, 'dirq')
 UPLOADS = os.path.join(carpetbag_root, 'uploads')
 
-fsq.set_const('FSQ_ROOT', fsq_root)
 QUEUE = 'package_build_q'
 
-# ensure FSQ_ROOT directory exists
-try:
-    os.makedirs(fsq_root)
-except OSError as e:
-    if e.errno == errno.EEXIST:
-        pass
-    else:
-        raise
-
-# ensure our queue exists
-try:
-    fsq.install(QUEUE, is_triggered=True)
-except fsq.exceptions.FSQInstallError as e:
-    if e.errno == errno.ENOTEMPTY:
-        # queue already exists
-        pass
-    else:
-        raise
-
-print('waiting for work on queue %s in %s' % (QUEUE, fsq_root))
+print('waiting for work on queue %s in %s' % (QUEUE, q_root))
 print('uploaded files will be in %s' % (UPLOADS))
 
-# look for work in queue
-for work in fsq.scan_forever(QUEUE):
-    # the queue item's only argument is the relative path of the srcpkg file
-    srcpkg = os.path.join(UPLOADS, work.arguments[0])
-    reldir = os.path.dirname(work.arguments[0])
+dirq = QueueSimple(os.path.join(q_root, QUEUE))
 
-    outdir = tempfile.mkdtemp(prefix='carpetbag_')
-    indir = os.path.join(UPLOADS, reldir)
+while True:
+    # look for work in queue
+    for work in dirq:
+        if not dirq.lock(work):
+            continue
 
-    if build(srcpkg, outdir):
-        if verify(indir, os.path.join(outdir, reldir)):
-            print('package verified')
-        else:
-            print('package not verified')
+        # the queue item is the relative path of the srcpkg file
+        name = dirq.get(work).decode()
 
-        fsq.done(work)
+        srcpkg = os.path.join(UPLOADS, name)
+        reldir = os.path.dirname(name)
+
+        outdir = tempfile.mkdtemp(prefix='carpetbag_')
+        indir = os.path.join(UPLOADS, reldir)
+
+        if build(srcpkg, outdir):
+            if verify(indir, os.path.join(outdir, reldir)):
+                print('package verified')
+            else:
+                print('package not verified')
+
+        dirq.remove(work)
+        dirq.purge()
         # XXX: clean up by removing srcpkg from uploads
-    else:
-        fsq.fail(work)
 
-    shutil.rmtree(outdir)
+        shutil.rmtree(outdir)
+
+    # wait a minute
+    time.sleep(60)

@@ -1,4 +1,4 @@
-#!/usr/bin/env python2
+#!/usr/bin/env python3
 #
 # Copyright (c) 2016 Jon Turney
 #
@@ -24,6 +24,7 @@
 import os
 import subprocess
 import time
+from datetime import timedelta
 
 # path to invoke VBoxManage
 VBM="/cygdrive/c/Program Files/Oracle/VirtualBox/VBoxManage"
@@ -49,7 +50,7 @@ except IOError:
 
 
 def abswinpath(path):
-    return subprocess.check_output(["cygpath", "-wa", path]).strip()
+    return subprocess.check_output(["cygpath", "-wa", path]).decode().strip()
 
 #
 # clone a fresh VM, build the given |srcpkg| in it, retrieve the build products
@@ -66,6 +67,7 @@ def build(srcpkg, outdir):
 
     print('jobid %d: building %s to %s' % (jobid, srcpkg, outdir))
 
+    start_time = time.time()
     vmid = 'buildvm_%d' % jobid
     credentials = "--username carpetbag --password carpetbag"
 
@@ -102,6 +104,11 @@ def build(srcpkg, outdir):
     # XXX it seems we need to wait while vbox process exits
     time.sleep(1)
     vbm("unregistervm " + vmid + " --delete")
+
+    end_time = time.time()
+    elapsed_time = round(end_time-start_time+0.5)
+    status = 'succeeded' if success else 'failed'
+    print('jobid %d: %s, elapsed time %s' % (jobid, status, timedelta(seconds=elapsed_time)))
 
     return success
 
