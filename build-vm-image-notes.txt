@@ -1,0 +1,60 @@
+This is based on using a Fedora 23 host, and Windows Server 2012R2 x64 guest
+
+* install virt-manager etc.
+
+dnf install virt-manager virt-install libvirt-python3
+
+* add yourself to the libvirt group (to avoid authentication prompts and allow use over ssh)
+
+usermod -a -G libvirt <your-username>
+
+* install virtio-win
+(as per https://fedoraproject.org/wiki/Windows_Virtio_Drivers)
+
+wget https://fedorapeople.org/groups/virt/virtio-win/virtio-win.repo -O /etc/yum.repos.d/virtio-win.repo
+dnf install virtio-win
+optional: dnf --enablerepo=virtio-win-latest upgrade virtio-win
+
+* create VM, install Windows Server into it
+
+optional: use virtio disk and NIC drivers
+(as per http://serverfault.com/questions/703675/install-windows-2012-r2-over-kvm-virtualizaton)
+
+optional: install vertio-balloon etc.
+
+* install virtio-serial device driver into VM
+
+...
+
+* add QEMU guest agent channel device to the Virtual Machine hardware
+(as per https://access.redhat.com/documentation/en-US/Red_Hat_Enterprise_Linux/7/html/Virtualization_Deployment_and_Administration_Guide/chap-QEMU_Guest_Agent.html
+ section 11.1.2, step 3)
+
+It seems to be necessary to stop and start the guest after this to make it aware of the new virtual device
+
+* install virtio guest agent into VM
+(as per ditto, section 11.1.2, step 4)
+
+Attach the VMs CD-ROM drive to the /usr/share/virtio-win/virtio-win.iso image
+
+virsh attach-disk win2k12r2 /usr/share/virtio-win/virtio-win.iso hdb
+
+Double click on guest-agent/qemu-ga-x64.msi
+
+QEMU Guest Agent service should be running
+
+Detach iso
+
+* verify that guest agent can be contacted and supports guest-exec
+
+We need qemu-agent to be at least 2.5
+
+virsh qemu-agent-command win2k12r2 '{"execute":"guest-info"}' | grep guest-exec
+
+* install cygwin into VM
+
+base + cygport
+
+* create user 'carpetbag', password 'carpetbag'
+
+You'll need to disable password policy for a password that simple

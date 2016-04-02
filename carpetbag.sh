@@ -72,4 +72,4 @@ rm -rf ${OUTDIR}
 mkdir -p ${OUTDIR}
 cp -aT ${PVR}.${ARCH}/dist ${OUTDIR}
 cd ${OUTDIR}
-find -type f >manifest
+find * -type f >manifest

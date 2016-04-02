@@ -26,19 +26,12 @@ import subprocess
 import time
 from datetime import timedelta
 
-# path to invoke VBoxManage
-VBM="/cygdrive/c/Program Files/Oracle/VirtualBox/VBoxManage"
-
 # this is the base VM image we clone for each build
 #
-# user 'carpetbag' should be able to log on with an password 'carpetbag'
-# user 'carpetbag' should have adminstrator rights
 # base cygwin installed
-# package unix2dos installed
 # package cygport installed
 #
-BASE_VMID='Carpetbag'
-BASE_SNAPSHOT='Snapshot'
+BASE_VMID='win2k12r2'
 
 # initialize persistent jobid
 jobid = 0
@@ -56,8 +49,6 @@ def abswinpath(path):
 # clone a fresh VM, build the given |srcpkg| in it, retrieve the build products
 # to |outdir|, and discard the VM
 #
-# Note that guestcontrol seems to have various bugs in VirtualBox 5.0 which
-# currently make this unworkable, so use VirtualBox 4.3
 
 def build(srcpkg, outdir):
     global jobid
@@ -69,27 +60,35 @@ def build(srcpkg, outdir):
 
     start_time = time.time()
     vmid = 'buildvm_%d' % jobid
-    credentials = "--username carpetbag --password carpetbag"
 
     # XXX: create depends, which can be produced by guessing heuristic or an
     # external database of build-deps
 
     # create VM
-    vbm("clonevm " + BASE_VMID + " --snapshot " + BASE_SNAPSHOT + " --options link --name " + vmid + " --register")
-    vbm("startvm " + vmid + " --type headless")
+    # XXX: use --reflink if btrfs is available
+    cmd("virt-clone --original %s --name %s --auto-clone --replace " % (BASE_VMID, vmid))
+
+    # XXX: when using libvit, use --autodestroy to automatically clean up
+    # XXX: clone saved state ???
+    cmd("virsh start %s" % (vmid))
 
     # install build instructions and source
-    vbm("guestcontrol " + vmid + " mkdir " + credentials + " --parents C:\\vm_in")
+    cmd("guestcontrol " + vmid + " mkdir " + credentials + " --parents C:\\vm_in")
     for f in ['carpetbag.sh', 'u2d_wrapper.sh', 'guessed_depends', srcpkg]:
-        vbm("guestcontrol " + vmid + " copyto " + credentials + " " + abswinpath(f) + " C:\\vm_in\\" + os.path.basename(f))
+        cmd("guestcontrol " + vmid + " copyto " + credentials + " " + abswinpath(f) + " C:\\vm_in\\" + os.path.basename(f))
 
     # attempt the build
-    success = vbm("guestcontrol " + vmid + " execute " + credentials + " --wait-exit --wait-stdout --wait-stderr --image C:\\cygwin\\bin\\bash.exe -- -l /cygdrive/c/vm_in/u2d_wrapper.sh " + os.path.basename(srcpkg) + " C:\\vm_out")
+    guest_cmd = "C:\\cygwin\\bin\\bash.exe -- -l /cygdrive/c/vm_in/u2d_wrapper.sh %s C:\\vm_out" % os.path.basename(srcpkg)
+    cmd("""virsh qemu-guest-agent-command %s '{"execute":"guest-exec", "arguments" : { "path": "%s", "params" : [%s] } }'""" % (vmid, cmd))
+    # XXX: extract pid from response json
+
+    cmd("""virsh qemu-guest-agent-command %s '{"execute":"guest-exec-status", "arguments" : { "pid" : %s } }'""" % (vmid, pid))
+    # XXX: wait for exited=true to change from -1 to indicate process has finished...
 
     # if the build was successful, fetch build products from VM
     if success:
         manifest = os.path.join(outdir, 'manifest')
-        vbm("guestcontrol " + vmid + " copyfrom " + credentials + " C:\\vm_out\\manifest " + abswinpath(manifest))
+        cmd("guestcontrol " + vmid + " copyfrom " + credentials + " C:\\vm_out\\manifest " + abswinpath(manifest))
 
         with open(manifest) as f:
             for l in f:
@@ -97,13 +96,11 @@ def build(srcpkg, outdir):
                 # print(l)
                 fn = os.path.join(outdir, l)
                 winpath = subprocess.check_output(["cygpath", "-w", l]).strip()
-                vbm("guestcontrol " + vmid + " copyfrom " + credentials + " C:\\vm_out\\" + winpath + " " + abswinpath(fn))
+                cmd("guestcontrol " + vmid + " copyfrom " + credentials + " C:\\vm_out\\" + winpath + " " + abswinpath(fn))
 
     # clean up VM
-    vbm("controlvm " + vmid + " poweroff")
-    # XXX it seems we need to wait while vbox process exits
-    time.sleep(1)
-    vbm("unregistervm " + vmid + " --delete")
+    cmd("virsh destroy %s " % (vmid))
+    cmd("virsh undefine %s --managed-save --snapshots-metadata --nvram --remove-all-storage" % (vmid))
 
     end_time = time.time()
     elapsed_time = round(end_time-start_time+0.5)
@@ -113,12 +110,12 @@ def build(srcpkg, outdir):
     return success
 
 
-def vbm(subcommand):
-    print(subcommand)
+def cmd(command):
+    print(command)
     result = False
 
     try:
-        log = subprocess.check_output([VBM] + subcommand.split(), stderr=subprocess.STDOUT)
+        log = subprocess.check_output(command.split(), stderr=subprocess.STDOUT)
     except subprocess.CalledProcessError as e:
         log = e.output
     else:
