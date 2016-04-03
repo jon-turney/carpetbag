@@ -22,16 +22,19 @@
 #
 
 import os
+import libvirt
 import subprocess
 import time
 from datetime import timedelta
+
+from libvirt_qemu_ga_utils import guestFileCopyFrom, guestFileCopyTo, guestFileRead, guestFileWrite, guestExec, guestPing
 
 # this is the base VM image we clone for each build
 #
 # base cygwin installed
 # package cygport installed
 #
-BASE_VMID='win2k12r2'
+BASE_VMID='Carpetbag'
 
 # initialize persistent jobid
 jobid = 0
@@ -41,9 +44,6 @@ try:
 except IOError:
     pass
 
-
-def abswinpath(path):
-    return subprocess.check_output(["cygpath", "-wa", path]).decode().strip()
 
 #
 # clone a fresh VM, build the given |srcpkg| in it, retrieve the build products
@@ -66,41 +66,67 @@ def build(srcpkg, outdir):
 
     # create VM
     # XXX: use --reflink if btrfs is available
-    cmd("virt-clone --original %s --name %s --auto-clone --replace " % (BASE_VMID, vmid))
+    # XXX: programmatically do this...
+    os.system("virt-clone --original %s --name %s --auto-clone --replace" % (BASE_VMID, vmid))
 
-    # XXX: when using libvit, use --autodestroy to automatically clean up
-    # XXX: clone saved state ???
-    cmd("virsh start %s" % (vmid))
+    # open a libvirt connection to hypervisor
+    conn = libvirt.open(None)
+    if conn == None:
+        print('Failed to open connection to the hypervisor')
+        return False
+
+    domain = conn.lookupByName(vmid)
+
+    # start vm, automatically clean up when we are done
+    domain.createWithFlags(libvirt.VIR_DOMAIN_START_AUTODESTROY)
+
+    # wait for the VM to start up and get into a state where guest-agent can
+    # respond... XXX: timeout
+    time.sleep(60*5)
+    while True:
+        if guestPing(domain):
+            break
+
+        time.sleep(15)
+
+    # ensure directory exists and is empty
+    guestExec(domain, 'cmd', ['/C', 'rmdir', '/S', '/Q', r'C:\\vm_in\\'])
+    guestExec(domain, 'cmd', ['/C', 'mkdir', r'C:\\vm_in\\'])
 
     # install build instructions and source
-    cmd("guestcontrol " + vmid + " mkdir " + credentials + " --parents C:\\vm_in")
-    for f in ['carpetbag.sh', 'u2d_wrapper.sh', 'guessed_depends', srcpkg]:
-        cmd("guestcontrol " + vmid + " copyto " + credentials + " " + abswinpath(f) + " C:\\vm_in\\" + os.path.basename(f))
+    for f in ['carpetbag.sh', 'wrapper.sh', 'guessed_depends', srcpkg]:
+        guestFileCopyTo(domain, f, r'C:\\vm_in\\' + os.path.basename(f))
 
     # attempt the build
-    guest_cmd = "C:\\cygwin\\bin\\bash.exe -- -l /cygdrive/c/vm_in/u2d_wrapper.sh %s C:\\vm_out" % os.path.basename(srcpkg)
-    cmd("""virsh qemu-guest-agent-command %s '{"execute":"guest-exec", "arguments" : { "path": "%s", "params" : [%s] } }'""" % (vmid, cmd))
-    # XXX: extract pid from response json
+    success = guestExec(domain, r'C:\\cygwin64\\bin\\bash.exe', ['-l','/cygdrive/c/vm_in/wrapper.sh', os.path.basename(srcpkg), r'C:\\vm_out'])
 
-    cmd("""virsh qemu-guest-agent-command %s '{"execute":"guest-exec-status", "arguments" : { "pid" : %s } }'""" % (vmid, pid))
-    # XXX: wait for exited=true to change from -1 to indicate process has finished...
+    # XXX: guest-agent doesn't seem to be capable of capturing output of cygwin
+    # process (for some strange reason), so we arrange to redirect it to a file
+    # and collect it here...
+    print(guestFileRead(domain, r'C:\\vm_in\\output').decode())
 
     # if the build was successful, fetch build products from VM
     if success:
         manifest = os.path.join(outdir, 'manifest')
-        cmd("guestcontrol " + vmid + " copyfrom " + credentials + " C:\\vm_out\\manifest " + abswinpath(manifest))
+        guestFileCopyFrom(domain, r'C:\\vm_out\\manifest', manifest)
 
         with open(manifest) as f:
             for l in f:
                 l = l.strip()
                 # print(l)
                 fn = os.path.join(outdir, l)
-                winpath = subprocess.check_output(["cygpath", "-w", l]).strip()
-                cmd("guestcontrol " + vmid + " copyfrom " + credentials + " C:\\vm_out\\" + winpath + " " + abswinpath(fn))
+                os.makedirs(os.path.dirname(fn), exist_ok=True)
+                winpath = l.replace('/',r'\\')
+                guestFileCopyFrom(domain, r'C:\\vm_out\\' + winpath, fn)
+
+    # terminate the VM.  Don't bother giving it a chance to shut down cleanly
+    # since we won't be using it again
+    domain.destroy()
 
     # clean up VM
-    cmd("virsh destroy %s " % (vmid))
-    cmd("virsh undefine %s --managed-save --snapshots-metadata --nvram --remove-all-storage" % (vmid))
+    domain.undefineFlags(libvirt.VIR_DOMAIN_UNDEFINE_MANAGED_SAVE |
+                         libvirt.VIR_DOMAIN_UNDEFINE_SNAPSHOTS_METADATA |
+                         libvirt.VIR_DOMAIN_UNDEFINE_NVRAM)
 
     end_time = time.time()
     elapsed_time = round(end_time-start_time+0.5)
@@ -108,18 +134,3 @@ def build(srcpkg, outdir):
     print('jobid %d: %s, elapsed time %s' % (jobid, status, timedelta(seconds=elapsed_time)))
 
     return success
-
-
-def cmd(command):
-    print(command)
-    result = False
-
-    try:
-        log = subprocess.check_output(command.split(), stderr=subprocess.STDOUT)
-    except subprocess.CalledProcessError as e:
-        log = e.output
-    else:
-        result = True
-
-    print(log)
-    return result

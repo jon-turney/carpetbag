@@ -31,7 +31,7 @@ from dirq.QueueSimple import QueueSimple
 from builder import build
 from verify import verify
 
-carpetbag_root = '/carpetbag'
+carpetbag_root = '/var/lib/carpetbag'
 q_root = os.path.join(carpetbag_root, 'dirq')
 UPLOADS = os.path.join(carpetbag_root, 'uploads')
 
@@ -41,6 +41,9 @@ print('waiting for work on queue %s in %s' % (QUEUE, q_root))
 print('uploaded files will be in %s' % (UPLOADS))
 
 dirq = QueueSimple(os.path.join(q_root, QUEUE))
+
+# purge any stale elements, unlock any locked elements
+dirq.purge(1, 1)
 
 while True:
     # look for work in queue

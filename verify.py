@@ -106,4 +106,6 @@ def verify(indir, outdir):
 
             valid = valid and result
 
+            # XXX: major difference in filesizes, modes should be detected ???
+
     return valid

@@ -1,5 +1,10 @@
 This is based on using a Fedora 23 host, and Windows Server 2012R2 x64 guest
 
+R9N79-23MWD-MBP9B-KHF8Q-C36WX
+
+Note that in the default Fedora 23 partitioning, /var/lib/libvirt is on /, which is only 50MB.
+It's easy to fill this up with VM images...
+
 * install virt-manager etc.
 
 dnf install virt-manager virt-install libvirt-python3
@@ -58,3 +63,9 @@ base + cygport
 * create user 'carpetbag', password 'carpetbag'
 
 You'll need to disable password policy for a password that simple
+
+*  Install carpetbag
+
+dnf install python3-dirq
+sudo mkdir /var/lib/carpetbag
+sudo chmod a+w /var/lib/carpetbag
