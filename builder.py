@@ -23,11 +23,11 @@
 
 import os
 import libvirt
-import subprocess
 import time
-from datetime import timedelta
 
 from libvirt_qemu_ga_utils import guestFileCopyFrom, guestFileCopyTo, guestFileRead, guestFileWrite, guestExec, guestPing
+from clone import clone
+import steptimer
 
 # this is the base VM image we clone for each build
 #
@@ -58,22 +58,21 @@ def build(srcpkg, outdir):
 
     print('jobid %d: building %s to %s' % (jobid, srcpkg, outdir))
 
-    start_time = time.time()
+    steptimer.start()
     vmid = 'buildvm_%d' % jobid
 
     # XXX: create depends, which can be produced by guessing heuristic or an
     # external database of build-deps
-
-    # create VM
-    # XXX: use --reflink if btrfs is available
-    # XXX: programmatically do this...
-    os.system("virt-clone --original %s --name %s --auto-clone --replace" % (BASE_VMID, vmid))
 
     # open a libvirt connection to hypervisor
     conn = libvirt.open(None)
     if conn == None:
         print('Failed to open connection to the hypervisor')
         return False
+
+    # create VM
+    clone_storage = clone(conn, BASE_VMID, vmid)
+    steptimer.mark('clone vm')
 
     domain = conn.lookupByName(vmid)
 
@@ -82,12 +81,12 @@ def build(srcpkg, outdir):
 
     # wait for the VM to start up and get into a state where guest-agent can
     # respond... XXX: timeout
-    time.sleep(60*5)
     while True:
         if guestPing(domain):
             break
 
-        time.sleep(15)
+        time.sleep(60)
+    steptimer.mark('boot')
 
     # ensure directory exists and is empty
     guestExec(domain, 'cmd', ['/C', 'rmdir', '/S', '/Q', r'C:\\vm_in\\'])
@@ -97,8 +96,11 @@ def build(srcpkg, outdir):
     for f in ['carpetbag.sh', 'wrapper.sh', 'guessed_depends', srcpkg]:
         guestFileCopyTo(domain, f, r'C:\\vm_in\\' + os.path.basename(f))
 
+    steptimer.mark('put')
+
     # attempt the build
     success = guestExec(domain, r'C:\\cygwin64\\bin\\bash.exe', ['-l','/cygdrive/c/vm_in/wrapper.sh', os.path.basename(srcpkg), r'C:\\vm_out'])
+    steptimer.mark('build')
 
     # XXX: guest-agent doesn't seem to be capable of capturing output of cygwin
     # process (for some strange reason), so we arrange to redirect it to a file
@@ -119,6 +121,8 @@ def build(srcpkg, outdir):
                 winpath = l.replace('/',r'\\')
                 guestFileCopyFrom(domain, r'C:\\vm_out\\' + winpath, fn)
 
+    steptimer.mark('fetch')
+
     # terminate the VM.  Don't bother giving it a chance to shut down cleanly
     # since we won't be using it again
     domain.destroy()
@@ -127,10 +131,10 @@ def build(srcpkg, outdir):
     domain.undefineFlags(libvirt.VIR_DOMAIN_UNDEFINE_MANAGED_SAVE |
                          libvirt.VIR_DOMAIN_UNDEFINE_SNAPSHOTS_METADATA |
                          libvirt.VIR_DOMAIN_UNDEFINE_NVRAM)
+    os.remove(clone_storage)
+    steptimer.mark('destroy vm')
 
-    end_time = time.time()
-    elapsed_time = round(end_time-start_time+0.5)
     status = 'succeeded' if success else 'failed'
-    print('jobid %d: %s, elapsed time %s' % (jobid, status, timedelta(seconds=elapsed_time)))
+    print('jobid %d: %s, %s' % (jobid, status, steptimer.report()))
 
     return success

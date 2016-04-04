@@ -7,7 +7,7 @@ It's easy to fill this up with VM images...
 
 * install virt-manager etc.
 
-dnf install virt-manager virt-install libvirt-python3
+dnf install virt-manager
 
 * add yourself to the libvirt group (to avoid authentication prompts and allow use over ssh)
 
@@ -20,39 +20,36 @@ wget https://fedorapeople.org/groups/virt/virtio-win/virtio-win.repo -O /etc/yum
 dnf install virtio-win
 optional: dnf --enablerepo=virtio-win-latest upgrade virtio-win
 
-* create VM, install Windows Server into it
+* create VM
 
 optional: use virtio disk and NIC drivers
 (as per http://serverfault.com/questions/703675/install-windows-2012-r2-over-kvm-virtualizaton)
-
-optional: install vertio-balloon etc.
-
-* install virtio-serial device driver into VM
-
-...
 
 * add QEMU guest agent channel device to the Virtual Machine hardware
 (as per https://access.redhat.com/documentation/en-US/Red_Hat_Enterprise_Linux/7/html/Virtualization_Deployment_and_Administration_Guide/chap-QEMU_Guest_Agent.html
  section 11.1.2, step 3)
 
-It seems to be necessary to stop and start the guest after this to make it aware of the new virtual device
+* install Windows Server 2012R2 x64 into VM
+
+* install virtio-serial device driver into VM
 
 * install virtio guest agent into VM
 (as per ditto, section 11.1.2, step 4)
 
-Attach the VMs CD-ROM drive to the /usr/share/virtio-win/virtio-win.iso image
+We need qemu-agent to be at least version 2.5.  Currently the version in the
+virtio-win package is too old.
 
-virsh attach-disk win2k12r2 /usr/share/virtio-win/virtio-win.iso hdb
+Get the qemu-ga-x86_64.msi I have built into the VM somehow and install it, e.g.
 
-Double click on guest-agent/qemu-ga-x64.msi
-
-QEMU Guest Agent service should be running
-
+mkisofs -J -r -o qemu-ga.iso /path/containing/msi/files/
+mv qemu-ga.iso /var/lib/libvirt/images/
+virsh attach-disk win2k12r2  /var/lib/libvirt/images/ hdb
+Double click on the qemu-ga-x64.msi installer
 Detach iso
 
-* verify that guest agent can be contacted and supports guest-exec
+* verify that QEMU Guest Agent service is running in the VM
 
-We need qemu-agent to be at least 2.5
+* verify that guest agent can be contacted and supports guest-exec
 
 virsh qemu-agent-command win2k12r2 '{"execute":"guest-info"}' | grep guest-exec
 
@@ -60,12 +57,24 @@ virsh qemu-agent-command win2k12r2 '{"execute":"guest-info"}' | grep guest-exec
 
 base + cygport
 
-* create user 'carpetbag', password 'carpetbag'
+* cleanly shutdown the VM
 
-You'll need to disable password policy for a password that simple
+XXX: apply updates?
+XXX: sysprep?
 
-*  Install carpetbag
+* make it's disk image read-only
 
-dnf install python3-dirq
+chmod -w /var/lib/libvirt/images/win2k12r2.qcow
+
+*  Install carpetbag onto host
+
+git clone somewhere
+dnf install python3-dirq libvirt-python3
 sudo mkdir /var/lib/carpetbag
 sudo chmod a+w /var/lib/carpetbag
+
+
+* (optional: install memory balloon)
+
+install driver
+(as admin) blsnvr -i to install service
