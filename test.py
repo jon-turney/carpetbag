@@ -15,13 +15,6 @@ UPLOADS = os.path.join(carpetbag_root, 'uploads')
 QUEUE = 'package_build_q'
 dirq = QueueSimple(os.path.join(q_root, QUEUE))
 
-# make a test addition to queue
-#for f in ['tzcode/tzcode-2016c-1-src.tar.xz']:
-#    t = os.path.join(UPLOADS, f)
-#    os.makedirs(os.path.dirname(t), exist_ok=True)
-#    shutil.copy2(os.path.basename(f), t)
-#    dirq.add(f)
-
 if len(sys.argv) > 1:
     # a package was specified on the command line
     p = sys.argv[1]

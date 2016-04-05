@@ -1,5 +1,5 @@
-#!/bin/sh -x
+#!/bin/sh
 # this script is executed on the guest
 base_dir=$(dirname "$0")
 cd $base_dir
-$base_dir/carpetbag.sh "$@" >output 2>&1
+exec $base_dir/build.sh "$@" >output 2>&1

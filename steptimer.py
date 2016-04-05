@@ -35,7 +35,7 @@ def mark(name):
     steptimes.append((name, time.time()))
 
 def start():
-    steptimes = []
+    steptimes.clear()
     mark('--start--')
 
 def format_delta(e):

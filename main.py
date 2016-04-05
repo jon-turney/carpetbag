@@ -29,9 +29,9 @@ import tempfile
 import time
 
 from dirq.QueueSimple import QueueSimple
+from analyze import analyze, PackageKind
 from builder import build
 from verify import verify
-from depends import depends
 
 logging.basicConfig(level=logging.INFO, format='%(levelname)s: %(message)s')
 os.makedirs('/var/log/carpetbag', exist_ok=True)
@@ -69,23 +69,25 @@ while True:
         outdir = tempfile.mkdtemp(prefix='carpetbag_')
         indir = os.path.join(UPLOADS, arch, reldir)
 
-        # create depends, which can be produced by guessing heuristic or an
-        # external database of build-deps
-        guessed_deps = depends(srcpkg, indir)
+        # examine the source package
+        package = analyze(srcpkg, indir)
 
-        if build(srcpkg, outdir, guessed_deps):
-            if verify(indir, os.path.join(outdir, reldir)):
-                logging.info('package verified')
-            else:
-                logging.warning('package did not verify')
+        if package.kind:
+            if build(srcpkg, outdir, package):
+                if verify(indir, os.path.join(outdir, reldir)):
+                    logging.info('package verified')
+                else:
+                    logging.warning('package did not verify')
 
         # remove item from queue
         dirq.remove(work)
         dirq.purge()
 
-        # XXX: clean up by removing srcpkg from uploads
+        # clean up
         logging.info('removing %s' % outdir)
-        #shutil.rmtree(outdir)
+        shutil.rmtree(outdir)
+        logging.info('removing %s' % indir)
+        shutil.rmtree(indir)
 
     # wait a minute
     time.sleep(60)

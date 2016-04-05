@@ -73,8 +73,11 @@ dnf install python3-dirq libvirt-python3
 sudo mkdir /var/lib/carpetbag
 sudo chmod a+w /var/lib/carpetbag
 
-
 * (optional: install memory balloon)
 
 install driver
 (as admin) blsnvr -i to install service
+
+* The only network access the VM needs is to a samba share containing cygwin setup and mirror.
+
+This could be on the host, or another VM on an isolated virtual network...

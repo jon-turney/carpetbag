@@ -51,7 +51,7 @@ except IOError:
 # to |outdir|, and discard the VM
 #
 
-def build(srcpkg, outdir, depends=''):
+def build(srcpkg, outdir, package):
     global jobid
     jobid = jobid + 1
     with open('.jobid', 'w') as f:
@@ -91,20 +91,22 @@ def build(srcpkg, outdir, depends=''):
     guestExec(domain, 'cmd', ['/C', 'mkdir', r'C:\\vm_in\\'])
 
     # install build instructions and source
-    for f in ['carpetbag.sh', 'wrapper.sh', srcpkg]:
+    for f in ['build.sh', 'wrapper.sh', srcpkg]:
         guestFileCopyTo(domain, f, r'C:\\vm_in\\' + os.path.basename(f))
-    guestFileWrite(domain, r'C:\\vm_in\\depends', bytes(depends, 'ascii'))
+
+    if package.depends:
+        guestFileWrite(domain, r'C:\\vm_in\\depends', bytes(package.depends, 'ascii'))
 
     steptimer.mark('put')
 
     # attempt the build
-    success = guestExec(domain, r'C:\\cygwin64\\bin\\bash.exe', ['-l','/cygdrive/c/vm_in/wrapper.sh', os.path.basename(srcpkg), r'C:\\vm_out'])
+    success = guestExec(domain, r'C:\\cygwin64\\bin\\bash.exe', ['-l','/cygdrive/c/vm_in/wrapper.sh', os.path.basename(srcpkg), r'C:\\vm_out', package.script, package.kind])
     steptimer.mark('build')
 
     # XXX: guest-agent doesn't seem to be capable of capturing output of cygwin
     # process (for some strange reason), so we arrange to redirect it to a file
     # and collect it here...
-    logfile = os.path.join('/var/log/carpetbag', 'jobid%d_build.log' % jobid)
+    logfile = os.path.join('/var/log/carpetbag', 'build_%d.log' % jobid)
     guestFileCopyFrom(domain, r'C:\\vm_in\\output', logfile)
     logging.info('jobid %d: build logfile is %s' % (jobid, logfile))
 

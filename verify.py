@@ -71,19 +71,22 @@ def verify_file(af, bf):
 def verify(indir, outdir):
     valid = True
 
-    # print(indir, outdir)
-
     # verify the set of built package files is the same
     indirtree = capture_dirtree(indir)
     outdirtree = capture_dirtree(outdir)
 
-    # print(indirtree)
-    # print(outdirtree)
+    # make a copy of indirtree, but replace .bz|.gz|.lzma extensions with .xz,
+    # the current compression
+    canonindirtree = {}
+    for p in indirtree:
+        canonindirtree[p] = [re.sub('.(bz2|gz|lzma)$', '.xz', f) for f in indirtree[p]]
 
-    if indirtree != outdirtree:
+    if canonindirtree != outdirtree:
         logging.warning('file manifests are different')
-        logging.warning(datadiff(indirtree, outdirtree))
+        logging.warning(datadiff(canonindirtree, outdirtree))
         valid = False
+    else:
+        logging.info('file manifests match, %d files' % (sum([len(indirtree[p]) for p in indirtree])))
 
     # verify each built binary package contain the same filelist
     for dirpath, dirnames, filenames in os.walk(indir):
