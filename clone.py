@@ -75,7 +75,7 @@ def clone(conn, base_id, clone_id):
     if os.stat(base_file).st_mode & stat.S_IWRITE:
         raise Exception("base VM image %s is writeable, too dangerous!" % (base_file))
 
-    os.system('qemu-img create -f qcow2 -b %s %s' % (base_file, clone_file))
+    os.system('qemu-img create -q -f qcow2 -b %s %s' % (base_file, clone_file))
     source_el.set('file', clone_file)
 
     # XXX: how to generate a new mac-address ? what does virt-clone do?

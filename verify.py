@@ -23,6 +23,7 @@
 
 import difflib
 import filecmp
+import logging
 import os
 import pprint
 import re
@@ -54,7 +55,7 @@ def verify_archive(af, bf):
         al = a.getnames()
     with tarfile.open(bf) as b:
         bl = b.gtenames()
-    print(datadiff(al, bl))
+    logging.warning(datadiff(al, bl))
     return al == bl
 
 
@@ -62,6 +63,8 @@ def verify_file(af, bf):
     if filecmp.cmp(af, bf, shallow=False):
         return True
     else:
+        with open(af) as a, open(bf) as b:
+            logging.warning(datadiff(a.read(),b.read()))
         return False
 
 
@@ -78,8 +81,8 @@ def verify(indir, outdir):
     # print(outdirtree)
 
     if indirtree != outdirtree:
-        print('file manifests are different')
-        print(datadiff(indirtree, outdirtree))
+        logging.warning('file manifests are different')
+        logging.warning(datadiff(indirtree, outdirtree))
         valid = False
 
     # verify each built binary package contain the same filelist
@@ -102,7 +105,7 @@ def verify(indir, outdir):
                 result = verify_file(inf, outf)
 
             if not result:
-                print('%s is different' % f)
+                logging.warning('%s is different' % os.path.join(relpath, f))
 
             valid = valid and result
 

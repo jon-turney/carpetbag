@@ -29,11 +29,13 @@ import time
 from datetime import timedelta
 
 steptimes = []
+# XXX: this is bad and I feel bad
 
 def mark(name):
     steptimes.append((name, time.time()))
 
 def start():
+    steptimes = []
     mark('--start--')
 
 def format_delta(e):

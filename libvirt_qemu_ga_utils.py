@@ -40,6 +40,7 @@ import base64
 import json
 import libvirt
 import libvirt_qemu
+import logging
 import re
 import time
 
@@ -49,10 +50,10 @@ import time
 
 # XXX: take care: an unescaped '\' in a path is not permitted in json
 def execute_ga_command(instance, command):
-    # print("command %s" % re.sub('"buf-b64":".*"', '"buf-b64":"..."', command))
+    logging.debug("command %s" % re.sub('"buf-b64":".*"', '"buf-b64":"..."', command))
     result = libvirt_qemu.qemuAgentCommand(instance, command, libvirt_qemu.VIR_DOMAIN_QEMU_AGENT_COMMAND_BLOCK, 0)
     json_result = json.loads(result)
-    # print("result %s " % re.sub('"buf-b64":".*"', '"buf-b64":"..."', json.dumps(json_result, sort_keys=True, indent=4)))
+    logging.debug("result %s " % re.sub('"buf-b64":".*"', '"buf-b64":"..."', json.dumps(json_result, sort_keys=True, indent=4)))
     return json_result
 
 
@@ -91,9 +92,6 @@ def guestFileRead(instance, path):
         file_handle = execute_ga_command(instance, FILE_OPEN % (path, 'r'))["return"]
         # XXX: hard-coded constant
         file_content = execute_ga_command(instance, FILE_READ % (file_handle, 1024000))["return"]["buf-b64"]
-    except Exception as ex:
-        print(Exception,":",ex)
-        return None
     finally:
         execute_ga_command(instance, FILE_CLOSE % file_handle)
     return base64.standard_b64decode(file_content)
@@ -113,15 +111,13 @@ def guestFileCopyFrom(instance, guestPath, hostPath):
 
     execute_ga_command(instance, FILE_CLOSE % file_handle)
 
+
 def guestFileWrite(instance, path, content):
     content = base64.standard_b64encode(content).decode('ascii')
     file_handle = -1
     try:
         file_handle = execute_ga_command(instance, FILE_OPEN % (path, 'w+'))["return"]
         write_count = execute_ga_command(instance, FILE_WRITE % (file_handle, content))["return"]["count"]
-    except Exception as ex:
-        print(Exception,":",ex)
-        return -1
     finally:
         execute_ga_command(instance, FILE_CLOSE % file_handle)
     return write_count
@@ -140,7 +136,7 @@ def guestFileCopyTo(instance, hostPath, guestPath):
 
             # if write_count != content, there is some kind of error...
             if write_count != len(content):
-                print("write error %d %d" % (write_count, len(content)))
+                logging.error("write error while copying to guest %d %d" % (write_count, len(content)))
 
     execute_ga_command(instance, FILE_CLOSE % file_handle)
 
@@ -153,7 +149,7 @@ GUEST_EXEC       ="""{"execute":"guest-exec", "arguments":{"path":"%s", "arg":[%
 GUEST_EXEC_STATUS="""{"execute":"guest-exec-status", "arguments":{"pid":%s}}"""
 
 def guestExec(instance, command, params):
-    print(command, ' '.join(params))
+    logging.info("%s %s" % (command, ' '.join(params)))
     paramlist = ','.join(['"%s"' % p for p in params])
     pid = execute_ga_command(instance, GUEST_EXEC % (command, paramlist))["return"]["pid"]
 
@@ -169,24 +165,24 @@ def guestExec(instance, command, params):
         time.sleep(1)
         i += 1
         if ((i % 60) == 0):
-            print('.', end='')
+            print('.', end='', flush=True)
 
     if (i >= 60):
         print('')
 
     exitcode = result['exitcode']
-    print('exitcode %d' % exitcode)
+    logging.info('exitcode %d' % exitcode)
 
     if 'out-data' in result:
         stdout = base64.standard_b64decode(result['out-data'])
         if 'out-truncated' in result:
             stdout += '(truncated)'
-        print('stdout', stdout)
+        logging.info('stdout %s' % stdout)
 
     if 'err-data' in result:
         stderr = base64.standard_b64decode(result['err-data'])
         if 'err-truncated' in result:
             stderr += '(truncated)'
-        print('stderr', stderr)
+        logging.info('stderr %s' % stderr)
 
     return (exitcode == 0)

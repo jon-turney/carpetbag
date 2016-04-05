@@ -22,6 +22,7 @@
 #
 
 import os
+import logging
 import libvirt
 import time
 
@@ -34,7 +35,7 @@ import steptimer
 # base cygwin installed
 # package cygport installed
 #
-BASE_VMID='Carpetbag'
+BASE_VMID='virtio'
 
 # initialize persistent jobid
 jobid = 0
@@ -50,24 +51,21 @@ except IOError:
 # to |outdir|, and discard the VM
 #
 
-def build(srcpkg, outdir):
+def build(srcpkg, outdir, depends=''):
     global jobid
     jobid = jobid + 1
     with open('.jobid', 'w') as f:
         f.write(str(jobid))
 
-    print('jobid %d: building %s to %s' % (jobid, srcpkg, outdir))
+    logging.info('jobid %d: building %s to %s' % (jobid, os.path.basename(srcpkg), outdir))
 
     steptimer.start()
     vmid = 'buildvm_%d' % jobid
 
-    # XXX: create depends, which can be produced by guessing heuristic or an
-    # external database of build-deps
-
     # open a libvirt connection to hypervisor
     conn = libvirt.open(None)
     if conn == None:
-        print('Failed to open connection to the hypervisor')
+        logging.error('Failed to open connection to the hypervisor')
         return False
 
     # create VM
@@ -93,8 +91,9 @@ def build(srcpkg, outdir):
     guestExec(domain, 'cmd', ['/C', 'mkdir', r'C:\\vm_in\\'])
 
     # install build instructions and source
-    for f in ['carpetbag.sh', 'wrapper.sh', 'guessed_depends', srcpkg]:
+    for f in ['carpetbag.sh', 'wrapper.sh', srcpkg]:
         guestFileCopyTo(domain, f, r'C:\\vm_in\\' + os.path.basename(f))
+    guestFileWrite(domain, r'C:\\vm_in\\depends', bytes(depends, 'ascii'))
 
     steptimer.mark('put')
 
@@ -105,7 +104,9 @@ def build(srcpkg, outdir):
     # XXX: guest-agent doesn't seem to be capable of capturing output of cygwin
     # process (for some strange reason), so we arrange to redirect it to a file
     # and collect it here...
-    print(guestFileRead(domain, r'C:\\vm_in\\output').decode())
+    logfile = os.path.join('/var/log/carpetbag', 'jobid%d_build.log' % jobid)
+    guestFileCopyFrom(domain, r'C:\\vm_in\\output', logfile)
+    logging.info('jobid %d: build logfile is %s' % (jobid, logfile))
 
     # if the build was successful, fetch build products from VM
     if success:
@@ -115,7 +116,6 @@ def build(srcpkg, outdir):
         with open(manifest) as f:
             for l in f:
                 l = l.strip()
-                # print(l)
                 fn = os.path.join(outdir, l)
                 os.makedirs(os.path.dirname(fn), exist_ok=True)
                 winpath = l.replace('/',r'\\')
@@ -135,6 +135,6 @@ def build(srcpkg, outdir):
     steptimer.mark('destroy vm')
 
     status = 'succeeded' if success else 'failed'
-    print('jobid %d: %s, %s' % (jobid, status, steptimer.report()))
+    logging.info('jobid %d: build %s, %s' % (jobid, status, steptimer.report()))
 
     return success

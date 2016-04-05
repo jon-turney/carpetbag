@@ -22,6 +22,7 @@
 #
 
 import errno
+import logging
 import os
 import shutil
 import tempfile
@@ -30,6 +31,10 @@ import time
 from dirq.QueueSimple import QueueSimple
 from builder import build
 from verify import verify
+from depends import depends
+
+logging.basicConfig(level=logging.INFO, format='%(levelname)s: %(message)s')
+os.makedirs('/var/log/carpetbag', exist_ok=True)
 
 carpetbag_root = '/var/lib/carpetbag'
 q_root = os.path.join(carpetbag_root, 'dirq')
@@ -37,8 +42,8 @@ UPLOADS = os.path.join(carpetbag_root, 'uploads')
 
 QUEUE = 'package_build_q'
 
-print('waiting for work on queue %s in %s' % (QUEUE, q_root))
-print('uploaded files will be in %s' % (UPLOADS))
+logging.info('waiting for work on queue %s in %s' % (QUEUE, q_root))
+logging.info('uploaded files will be in %s' % (UPLOADS))
 
 dirq = QueueSimple(os.path.join(q_root, QUEUE))
 
@@ -53,24 +58,34 @@ while True:
 
         # the queue item is the relative path of the srcpkg file
         name = dirq.get(work).decode()
+        logging.info('processing %s' % name)
 
-        srcpkg = os.path.join(UPLOADS, name)
+        # only x86_64, at the moment
+        arch = 'x86_64'
+
+        srcpkg = os.path.join(UPLOADS, arch, name)
         reldir = os.path.dirname(name)
 
         outdir = tempfile.mkdtemp(prefix='carpetbag_')
-        indir = os.path.join(UPLOADS, reldir)
+        indir = os.path.join(UPLOADS, arch, reldir)
 
-        if build(srcpkg, outdir):
+        # create depends, which can be produced by guessing heuristic or an
+        # external database of build-deps
+        guessed_deps = depends(srcpkg, indir)
+
+        if build(srcpkg, outdir, guessed_deps):
             if verify(indir, os.path.join(outdir, reldir)):
-                print('package verified')
+                logging.info('package verified')
             else:
-                print('package not verified')
+                logging.warning('package did not verify')
 
+        # remove item from queue
         dirq.remove(work)
         dirq.purge()
-        # XXX: clean up by removing srcpkg from uploads
 
-        shutil.rmtree(outdir)
+        # XXX: clean up by removing srcpkg from uploads
+        logging.info('removing %s' % outdir)
+        #shutil.rmtree(outdir)
 
     # wait a minute
     time.sleep(60)

@@ -46,7 +46,7 @@ DEPENDS=$(grep '^DEPENDS=' ${CYGPORT})
 
 if [ -z "${DEPENDS}" ] ; then
     echo "No DEPENDS in cygport file, using guesses"
-    DEPENDS=$(cat guessed_depends)
+    DEPENDS=$(cat depends)
 fi
 
 if [ -n "${DEPENDS}" ] ; then
