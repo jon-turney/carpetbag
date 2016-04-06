@@ -68,12 +68,16 @@ case ${KIND} in
         cygport ${SCRIPT} install || exit 1
         cygport ${SCRIPT} package || exit 1
         # this is where build products are found
-        PRODUCT=${PVR}.${ARCH}/dist
+        if [ -d "${PVR}.${ARCH}/dist" ] ; then
+            PRODUCT=${PVR}.${ARCH}/dist
+        else
+            PRODUCT=${PVR}.noarch/dist
+        fi
         ;;
     'g-b-s'|'cygbuild')
         ./${SCRIPT} almostall || exit 1
-        # XXX: Doesn't set PRODUCT because I don't know how to separate the
-        # products of g-b-s or cygbuild
+        # XXX: Doesn't set PRODUCT because I don't know how to separate source
+        # and products of g-b-s or cygbuild
         ;;
 esac
 

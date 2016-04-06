@@ -30,6 +30,9 @@ from libvirt_qemu_ga_utils import guestFileCopyFrom, guestFileCopyTo, guestFileR
 from clone import clone
 import steptimer
 
+#
+debug = False
+
 # this is the base VM image we clone for each build
 #
 # base cygwin installed
@@ -74,8 +77,8 @@ def build(srcpkg, outdir, package):
 
     domain = conn.lookupByName(vmid)
 
-    # start vm, automatically clean up when we are done
-    domain.createWithFlags(libvirt.VIR_DOMAIN_START_AUTODESTROY)
+    # start vm, automatically clean up when we are done, unless debugging
+    domain.createWithFlags(libvirt.VIR_DOMAIN_START_AUTODESTROY if not debug else 0)
 
     # wait for the VM to start up and get into a state where guest-agent can
     # respond... XXX: timeout
@@ -125,16 +128,17 @@ def build(srcpkg, outdir, package):
 
     steptimer.mark('fetch')
 
-    # terminate the VM.  Don't bother giving it a chance to shut down cleanly
-    # since we won't be using it again
-    domain.destroy()
+    if not debug:
+        # terminate the VM.  Don't bother giving it a chance to shut down
+        # cleanly since we won't be using it again
+        domain.destroy()
 
-    # clean up VM
-    domain.undefineFlags(libvirt.VIR_DOMAIN_UNDEFINE_MANAGED_SAVE |
-                         libvirt.VIR_DOMAIN_UNDEFINE_SNAPSHOTS_METADATA |
-                         libvirt.VIR_DOMAIN_UNDEFINE_NVRAM)
-    os.remove(clone_storage)
-    steptimer.mark('destroy vm')
+        # clean up VM
+        domain.undefineFlags(libvirt.VIR_DOMAIN_UNDEFINE_MANAGED_SAVE |
+                             libvirt.VIR_DOMAIN_UNDEFINE_SNAPSHOTS_METADATA |
+                             libvirt.VIR_DOMAIN_UNDEFINE_NVRAM)
+        os.remove(clone_storage)
+        steptimer.mark('destroy vm')
 
     status = 'succeeded' if success else 'failed'
     logging.info('jobid %d: build %s, %s' % (jobid, status, steptimer.report()))

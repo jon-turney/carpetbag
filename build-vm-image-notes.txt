@@ -62,6 +62,9 @@ base + cygport
 XXX: apply updates?
 XXX: sysprep?
 
+sysprep /generalize /audit /shutdown
+even with PersistentAllDeviceInstalls, this seems a bad idea and will only make things slower...
+
 * make it's disk image read-only
 
 chmod -w /var/lib/libvirt/images/win2k12r2.qcow

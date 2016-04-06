@@ -65,4 +65,4 @@ for (dirpath, subdirs, files) in os.walk(packagedir):
             shutil.copy2(fr, to)
 
 # add it to the queue
-dirq.add(os.path.join(p, filename))
+dirq.add(os.path.join(arch, p, filename))

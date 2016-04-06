@@ -51,7 +51,15 @@ dirq = QueueSimple(os.path.join(q_root, QUEUE))
 dirq.purge(1, 1)
 
 while True:
+    # pull queues
+    logging.info('pulling')
+    host='jon@tambora'
+    rsync_cmd="rsync -ar --itemize-changes --exclude='*.tmp' --remove-source-files"
+    os.system('%s %s:/sourceware/cygwin-staging/queue/uploads/ %s' % (rsync_cmd, host, UPLOADS))
+    os.system('%s %s:/sourceware/cygwin-staging/queue/dirq/ %s' % (rsync_cmd, host, q_root))
+
     # look for work in queue
+    logging.info('scanning queue for work')
     for work in dirq:
         if not dirq.lock(work):
             continue
@@ -60,24 +68,26 @@ while True:
         name = dirq.get(work).decode()
         logging.info('processing %s' % name)
 
-        # only x86_64, at the moment
-        arch = 'x86_64'
-
-        srcpkg = os.path.join(UPLOADS, arch, name)
         reldir = os.path.dirname(name)
-
         outdir = tempfile.mkdtemp(prefix='carpetbag_')
-        indir = os.path.join(UPLOADS, arch, reldir)
+        indir = os.path.join(UPLOADS, reldir)
 
-        # examine the source package
-        package = analyze(srcpkg, indir)
+        # only handle x86_64, at the moment
+        arch = name.split(os.sep)[0]
+        if arch != 'x86_64':
+            logging.warning('arch %s, not yet handled' % arch)
+        else:
+            srcpkg = os.path.join(UPLOADS, name)
 
-        if package.kind:
-            if build(srcpkg, outdir, package):
-                if verify(indir, os.path.join(outdir, reldir)):
-                    logging.info('package verified')
-                else:
-                    logging.warning('package did not verify')
+            # examine the source package
+            package = analyze(srcpkg, indir)
+
+            if package.kind:
+                if build(srcpkg, outdir, package):
+                    if verify(indir, os.path.join(outdir, reldir)):
+                        logging.info('package verified')
+                    else:
+                        logging.warning('package did not verify')
 
         # remove item from queue
         dirq.remove(work)
@@ -90,4 +100,5 @@ while True:
         shutil.rmtree(indir)
 
     # wait a minute
+    logging.info('waiting')
     time.sleep(60)

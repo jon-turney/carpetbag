@@ -110,7 +110,7 @@ def depends_from_hints(srcpkg, indir):
         packages.extend(subdirs)
 
     # provided packages will be excluded from guessed dependencies
-    logging.info('excluded: %s' % (','.join(sorted(packages))))
+    logging.info('excluded dependencies: %s' % (','.join(sorted(packages))))
     logging.info('runtime dependencies: %s' % (','.join(sorted(runtime_deps))))
 
     build_deps = set()

@@ -49,14 +49,11 @@ def datadiff(a, b):
 
 
 def verify_archive(af, bf):
-    return True
-
-    with tarfile.open(af) as a:
+    with tarfile.open(af) as a, tarfile.open(bf) as b:
         al = a.getnames()
-    with tarfile.open(bf) as b:
         bl = b.gtenames()
-    logging.warning(datadiff(al, bl))
-    return al == bl
+        logging.warning(datadiff(al, bl))
+        return al == bl
 
 
 def verify_file(af, bf):
