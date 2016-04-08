@@ -35,20 +35,13 @@ mkdir ${BUILDDIR}
 tar -C ${BUILDDIR} -xvf ${SRCPKG} || exit 1
 
 # install the build dependencies
-case ${KIND} in
-    'g-b-s'|'cygbuild'|\
-    'cygport-guessed-depends')
-        DEPENDS=$(cat depends)
-    ;;
-    'cygport-with-depends')
-        # evaluate the DEPENDS variable defined by the cygport script
-        DEPENDS=$(source ${SCRIPT} ; echo ${DEPENDS})
-    ;;
-esac
+if [ -f depends ] ; then
+    DEPEND=$(cat depends)
+fi
 
-if [ -n "${DEPENDS}" ] ; then
+if [ -n "${DEPEND}" ] ; then
     //polidori/public/setup/setup-${SETUP_ARCH} \
-                             -q -P ${DEPENDS} \
+                             -q -P ${DEPEND} \
                              -s 'file:////polidori/public/cygwin'
 fi
 
@@ -86,8 +79,9 @@ rm -rf ${OUTDIR}
 mkdir -p ${OUTDIR}
 
 if [ -n "${PRODUCT}" ] ; then
-    cp -aT ${PRODUCT} ${OUTDIR}
+    cp -aTv ${PRODUCT} ${OUTDIR}
 fi
 
 cd ${OUTDIR}
 find * -type f >manifest
+cat manifest

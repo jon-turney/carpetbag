@@ -43,16 +43,18 @@ def capture_dirtree(basedir):
 
 
 def datadiff(a, b):
-    return '\n'.join(difflib.ndiff(
+    return '\n' + '\n'.join(difflib.unified_diff(
         pprint.pformat(a).splitlines(),
-        pprint.pformat(b).splitlines()))
+        pprint.pformat(b).splitlines(),
+        fromfile='upload', tofile='built')).replace('\n\n','\n')
 
 
 def verify_archive(af, bf):
     with tarfile.open(af) as a, tarfile.open(bf) as b:
         al = a.getnames()
-        bl = b.gtenames()
-        logging.warning(datadiff(al, bl))
+        bl = b.getnames()
+        if al != bl:
+            logging.warning(datadiff(al, bl))
         return al == bl
 
 
@@ -67,6 +69,7 @@ def verify_file(af, bf):
 
 def verify(indir, outdir):
     valid = True
+    logging.info('comparing uploaded %s and built %s' % (indir, outdir))
 
     # verify the set of built package files is the same
     indirtree = capture_dirtree(indir)
@@ -105,10 +108,13 @@ def verify(indir, outdir):
                 result = verify_file(inf, outf)
 
             if not result:
-                logging.warning('%s is different' % os.path.join(relpath, f))
+                logging.warning('contents of %s are different' % os.path.join(relpath, f))
 
             valid = valid and result
 
             # XXX: major difference in filesizes, modes should be detected ???
+
+    status = 'succeeded' if valid else 'failed'
+    logging.info('package contents verification %s' % (status))
 
     return valid

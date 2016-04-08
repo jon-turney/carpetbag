@@ -49,16 +49,19 @@ def analyze(srcpkg, indir):
                 fn = cygports[0].name
                 f = tf.extractfile(cygports[0])
                 content = f.read().decode()
-                # does it have a DEPENDS line?
-                if re.search('^DEPENDS', content, re.MULTILINE):
-                    logging.info('srcpkg contains cygport %s, with DEPENDS' % fn)
-                    return PackageKind('cygport-with-depends', script=fn)
+                # does it have a DEPEND line?
+                match = re.search('^DEPEND=\s*"(.*?)"', content, re.MULTILINE | re.DOTALL)
+                if match:
+                    logging.info('srcpkg contains cygport %s, with DEPEND' % fn)
+                    depends = set.union(depends_from_depend(match.group(1)),
+                                        depends_from_database(srcpkg, indir))
+                    return PackageKind('cygport-with-depends', script=fn, depends=','.join(sorted(depends)))
                 else:
                     logging.info('srcpkg contains cygport %s' % fn)
                     depends = set.union(depends_from_hints(srcpkg, indir),
                                         depends_from_cygport(content),
-                                        depends_from_database(srcpkg))
-                    return PackageKind('cygport-guessed-depends', script=fn, depends= ','.join(sorted(depends)))
+                                        depends_from_database(srcpkg, indir))
+                    return PackageKind('cygport-guessed-depends', script=fn, depends=','.join(sorted(depends)))
 
             # if there's no cygport file, we look for a g-b-s style .sh file instead
             scripts = [m for m in tf.getmembers() if re.search(r'\.sh$', m.name)]
@@ -75,10 +78,10 @@ def analyze(srcpkg, indir):
                     kind = 'g-b-s'
 
                 depends = set.union(depends_from_hints(srcpkg, indir),
-                                    depends_from_database(srcpkg))
+                                    depends_from_database(srcpkg, indir))
 
                 logging.info('%s script %s' % (kind, fn))
-                return PackageKind(kind, script=fn, depends=depends)
+                return PackageKind(kind, script=fn, depends=','.join(sorted(depends)))
             elif len(scripts) > 1:
                 logging.error('too many scripts in srcpkg %s', srcpkg)
                 return PackageKind(None, '', '')
@@ -92,6 +95,8 @@ def analyze(srcpkg, indir):
 #
 # guess at build depends, by looking at setup.hints
 #
+
+pkg_to_devel_pkg_map = eval(open('devel_package_map').read())
 
 def depends_from_hints(srcpkg, indir):
     runtime_deps = set()
@@ -117,7 +122,6 @@ def depends_from_hints(srcpkg, indir):
     # try some heuristics to transform runtime dependencies to build time
     # dependencies
     for d in runtime_deps:
-        bd = None
 
         # ignore anything provided from this source package
         if d in packages:
@@ -128,21 +132,29 @@ def depends_from_hints(srcpkg, indir):
             build_deps.add(d)
             continue
 
-        # libfoosoversion -> libfoo-devel
-        match = re.match(r'^lib(.*?)(?!devel)([\d_.]*)$', d)
-        if match:
-            bd = 'lib' + match.group(1) + '-devel'
-
-        # libraries with irregular package names
-        if d.startswith('zlib'):
-            bd = 'zlib-devel'
+        # transform a dependency on a runtime package to a build-dep on all the
+        # devel packages produced from the same source package
+        if d in pkg_to_devel_pkg_map:
+            devel_pkgs = pkg_to_devel_pkg_map[d]
+            logging.info('mapping %s -> %s' % (d, ','.join(sorted(devel_pkgs))))
+            for bd in devel_pkgs:
+                build_deps.add(bd)
 
         # runtime deps which are also build time deps
-        if d in ['python', 'python3']:
-            bd = d
+        #
+        # (note that due to the dynamic nature of the language, python
+        # dependencies probably aren't needed at build time (if tests aren't
+        # run), except for cygport to correctly discover them as
+        # dependencies...)
+        for i in ['python', 'python3']:
+            if d.startswith(i):
+                build_deps.add(d)
 
-        if bd:
-            build_deps.add(bd)
+    # In code which uses libgpgme-devel, it's possible to use libgpg-error-devel
+    # in such a way that it is only a build-time dependency, and doesn't
+    # introduce a run-time dependency on libgpg-error0
+    if 'libgpgme-devel' in build_deps:
+        build_deps.add('libgpg-error-devel')
 
     # XXX: force gettext-devel to be installed, as cygport currently has a bug
     # which causes it to silently exit if it's not present...
@@ -169,12 +181,38 @@ def depends_from_cygport(content):
 
     logging.info('cygport inherits: %s' % ','.join(sorted(inherits)))
 
-    if 'xfce4' in inherits:
-        build_deps.add('xfce4-dev-tools')
+    # if we have any of the inherits in the first list, add the second list to
+    # depends
+    for (pos, deps) in [(['python','python-distutils'], ['python']),
+                        (['python3', 'python3-distutils'], ['python3']),
+                        (['mate'], ['mate-common']),
+                        (['xfce4'], ['xfce4-dev-tools'])]:
+        for i in pos:
+            if i in inherits:
+                build_deps.update(deps)
 
     # if it uses autotools, it will want pkg-config
     if ('autotools' in inherits) or (len(inherits) == 0):
         build_deps.add('pkg-config')
+
+    # for cross-packages, we need the appropriate cross-toolchain
+    if 'cross' in inherits:
+        cross_host = re.search(r'^CROSS_HOST\s*=\s*"?(.*?)"?\s*$', content, re.MULTILINE).group(1)
+
+        pkg_prefix = ''
+        if cross_host == 'i686-w64-mingw32':
+            pkg_prefix = 'mingw64-i686-'
+        elif cross_host == 'x86_64-w64-mingw32':
+            pkg_prefix = 'mingw64-x86_64-'
+        elif cross_host == 'i686-pc-cygwin':
+            pkg_prefix = 'cygwin32-'
+        elif cross_host == 'x86_64-pc-cygwin':
+            pkg_prefix = 'cygwin64-'
+
+        logging.info('cross_host: %s, pkg_prefix: %s' % (cross_host, pkg_prefix))
+
+        for tool in ['binutils', 'gcc-core', 'gcc-g++', 'pkg-config']:
+            build_deps.add('%s%s' % (pkg_prefix, tool))
 
     logging.info('build dependencies (deduced from inherits): %s' % (','.join(sorted(build_deps))))
 
@@ -185,5 +223,39 @@ def depends_from_cygport(content):
 # look up build depends in a list we keep
 #
 
-def depends_from_database(srcpkg):
-    return frozenset()
+per_package_deps = {
+    'mutt': ['libxslt','docbook-xsl'],  # to build docbook documentation
+    'git': ['bash-completion-devel'],   # needs updating for separate -devel package
+}
+
+def depends_from_database(srcpkg, indir):
+    p = os.path.split(indir)[1]
+    build_deps = per_package_deps.get(p, [])
+    logging.info('build dependencies (hardcoded for this package): %s' % (','.join(sorted(build_deps))))
+    return frozenset(build_deps)
+
+#
+# transform a cygport DEPEND atom list into a list of cygwin packages
+#
+
+def depends_from_depend(depend):
+    build_deps = set()
+
+    for atom in depend.split():
+        # atoms of the form blah(foo) indicate a module foo for language blah
+        match = re.match(r'(.*)\((.*)\)', atom)
+        if match:
+            lang = match.group(1)
+            module = match.group(2)
+            # so transform into a cygwin package name
+            if lang == 'perl':
+                dep = lang + '-' + module.replace('::', '-')
+                build_deps.add(dep)
+            else:
+                logging.warning('DEPEND atom of unhandled type %s' % lang)
+        # otherwise, it is simply a cygwin package name
+        else:
+            build_deps.add(atom)
+
+    logging.info('build dependencies (from DEPEND): %s' % (','.join(sorted(build_deps))))
+    return build_deps

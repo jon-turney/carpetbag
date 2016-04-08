@@ -39,14 +39,14 @@ mtime = 0
 version = ''
 filename = ''
 
-packagedir = os.path.join('/var/ftp/pub/cygwin/' + arch + '/release', p)
+packagedir = os.path.join('/var/ftp/pub/cygwin', arch, 'release', p)
 for f in os.listdir(packagedir):
     if re.search(r'-src.tar.(bz2|gz|lzma|xz)$', f):
         check_mtime = os.path.getmtime(os.path.join(packagedir, f))
         if check_mtime > mtime:
             match = re.match(r'^' + re.escape(p) + r'-(.+)-(\d[0-9a-zA-Z.]*)(-src|)\.tar\.(bz2|gz|lzma|xz)$', f)
             version = match.group(1) + '-' + match.group(2)
-            mtime = mtime
+            mtime = check_mtime
             filename = f
 
 print('picked %s %s' % (p, version))
@@ -59,10 +59,12 @@ for (dirpath, subdirs, files) in os.walk(packagedir):
         match = re.match(r'^.*-' + re.escape(version) + r'(-src|)\.tar\.(bz2|gz|lzma|xz)$', f)
         if match or f == 'setup.hint':
             fr = os.path.join(dirpath, f)
-            to = os.path.join(UPLOADS, arch, p, relpath, f)
+            to = os.path.join(UPLOADS, arch, 'release', p, relpath, f)
             os.makedirs(os.path.dirname(to), exist_ok=True)
             print('copying %s to %s' % (fr, to))
             shutil.copy2(fr, to)
 
 # add it to the queue
-dirq.add(os.path.join(arch, p, filename))
+srcpkg = os.path.join(arch, 'release', p, filename)
+print('enqueued %s' % (srcpkg))
+dirq.add(srcpkg)

@@ -98,6 +98,7 @@ def guestFileRead(instance, path):
 
 
 def guestFileCopyFrom(instance, guestPath, hostPath):
+    logging.info("guestFileCopyFrom: guest %s -> host %s" % (guestPath, hostPath))
     file_handle = execute_ga_command(instance, FILE_OPEN % (guestPath, 'r'))['return']
     with open(hostPath, 'wb') as f:
         while True:
@@ -124,6 +125,7 @@ def guestFileWrite(instance, path, content):
 
 
 def guestFileCopyTo(instance, hostPath, guestPath):
+    logging.info("guestFileCopyTo: host %s -> guest %s" % (hostPath, guestPath))
     file_handle = execute_ga_command(instance, FILE_OPEN % (guestPath, 'w+'))["return"]
     with open(hostPath, 'rb') as f:
         while True:
@@ -149,7 +151,7 @@ GUEST_EXEC       ="""{"execute":"guest-exec", "arguments":{"path":"%s", "arg":[%
 GUEST_EXEC_STATUS="""{"execute":"guest-exec-status", "arguments":{"pid":%s}}"""
 
 def guestExec(instance, command, params):
-    logging.info("%s %s" % (command, ' '.join(params)))
+    logging.info("guestExec: %s %s" % (command, ' '.join(params)))
     paramlist = ','.join(['"%s"' % p for p in params])
     pid = execute_ga_command(instance, GUEST_EXEC % (command, paramlist))["return"]["pid"]
 

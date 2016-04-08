@@ -33,14 +33,47 @@ from analyze import analyze, PackageKind
 from builder import build
 from verify import verify
 
+#
+debug = True
+
+#
+#
+#
+
+class colors:
+    reset='\033[0m'
+    class fg:
+        red='\033[31m'
+        green='\033[32m'
+
+def color_result(success):
+    if success:
+        return colors.fg.green + 'succeeded' + colors.reset
+    else:
+        return colors.fg.red + 'failed' + colors.reset
+
+#
+#
+#
+
+# initialize logging
 logging.basicConfig(level=logging.INFO, format='%(levelname)s: %(message)s')
 os.makedirs('/var/log/carpetbag', exist_ok=True)
 
+# initialize work queue
 carpetbag_root = '/var/lib/carpetbag'
 q_root = os.path.join(carpetbag_root, 'dirq')
 UPLOADS = os.path.join(carpetbag_root, 'uploads')
-
 QUEUE = 'package_build_q'
+
+# initialize persistent jobid
+jobid_file = os.path.join(carpetbag_root, 'jobid')
+jobid = 0
+try:
+    with open(jobid_file) as f:
+        jobid = int(f.read())
+except IOError:
+    pass
 
 logging.info('waiting for work on queue %s in %s' % (QUEUE, q_root))
 logging.info('uploaded files will be in %s' % (UPLOADS))
@@ -64,15 +97,27 @@ while True:
         if not dirq.lock(work):
             continue
 
+        built = False
+        valid = False
+
+        # increment jobid
+        jobid = jobid + 1
+        with open(jobid_file, 'w') as f:
+            f.write(str(jobid))
+
+        # start logging to job logfile
+        fh = logging.FileHandler(os.path.join('/var/log/carpetbag', '%d.log' % jobid))
+        logging.getLogger().addHandler(fh)
+
         # the queue item is the relative path of the srcpkg file
         name = dirq.get(work).decode()
-        logging.info('processing %s' % name)
+        logging.info('jobid %d: processing %s' % (jobid, name))
 
         reldir = os.path.dirname(name)
         outdir = tempfile.mkdtemp(prefix='carpetbag_')
         indir = os.path.join(UPLOADS, reldir)
 
-        # only handle x86_64, at the moment
+        # XXX: only handle x86_64, at the moment
         arch = name.split(os.sep)[0]
         if arch != 'x86_64':
             logging.warning('arch %s, not yet handled' % arch)
@@ -83,21 +128,28 @@ while True:
             package = analyze(srcpkg, indir)
 
             if package.kind:
-                if build(srcpkg, outdir, package):
-                    if verify(indir, os.path.join(outdir, reldir)):
-                        logging.info('package verified')
-                    else:
-                        logging.warning('package did not verify')
+                # build the packages
+                built = build(srcpkg, os.path.join(outdir, arch, 'release'), package, jobid)
+                if built:
+                    # verify built package
+                    valid = verify(indir, os.path.join(outdir, reldir))
+
+        # one line summary of this job
+        logging.info('jobid %d: processed %s, build %s, verify %s' % (jobid, name, color_result(built), color_result(valid)))
 
         # remove item from queue
         dirq.remove(work)
         dirq.purge()
 
         # clean up
-        logging.info('removing %s' % outdir)
-        shutil.rmtree(outdir)
-        logging.info('removing %s' % indir)
-        shutil.rmtree(indir)
+        if not debug:
+            logging.info('removing %s' % outdir)
+            shutil.rmtree(outdir)
+            logging.info('removing %s' % indir)
+            shutil.rmtree(indir)
+
+        # stop logging to job logfile
+        logging.getLogger().removeHandler(fh)
 
     # wait a minute
     logging.info('waiting')

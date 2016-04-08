@@ -40,27 +40,13 @@ debug = False
 #
 BASE_VMID='virtio'
 
-# initialize persistent jobid
-jobid = 0
-try:
-    with open('.jobid') as f:
-        jobid = int(f.read())
-except IOError:
-    pass
-
-
 #
 # clone a fresh VM, build the given |srcpkg| in it, retrieve the build products
 # to |outdir|, and discard the VM
 #
 
-def build(srcpkg, outdir, package):
-    global jobid
-    jobid = jobid + 1
-    with open('.jobid', 'w') as f:
-        f.write(str(jobid))
-
-    logging.info('jobid %d: building %s to %s' % (jobid, os.path.basename(srcpkg), outdir))
+def build(srcpkg, outdir, package, jobid):
+    logging.info('building %s to %s' % (os.path.basename(srcpkg), outdir))
 
     steptimer.start()
     vmid = 'buildvm_%d' % jobid
@@ -81,12 +67,20 @@ def build(srcpkg, outdir, package):
     domain.createWithFlags(libvirt.VIR_DOMAIN_START_AUTODESTROY if not debug else 0)
 
     # wait for the VM to start up and get into a state where guest-agent can
-    # respond... XXX: timeout
-    while True:
+    # respond...
+    for i in range(1,5):
         if guestPing(domain):
             break
 
         time.sleep(60)
+    else: # no break
+        # timeout waiting for VM to start
+        #
+        # sometimes the guest agent seems to break and not start properly, need
+        # to deal with that case, somehow...
+        pass
+    # XXX use an event to wait for this... ???
+
     steptimer.mark('boot')
 
     # ensure directory exists and is empty
@@ -111,10 +105,11 @@ def build(srcpkg, outdir, package):
     # and collect it here...
     logfile = os.path.join('/var/log/carpetbag', 'build_%d.log' % jobid)
     guestFileCopyFrom(domain, r'C:\\vm_in\\output', logfile)
-    logging.info('jobid %d: build logfile is %s' % (jobid, logfile))
+    logging.info('build logfile is %s' % (logfile))
 
     # if the build was successful, fetch build products from VM
     if success:
+        os.makedirs(outdir, exist_ok=True)
         manifest = os.path.join(outdir, 'manifest')
         guestFileCopyFrom(domain, r'C:\\vm_out\\manifest', manifest)
 
@@ -141,6 +136,6 @@ def build(srcpkg, outdir, package):
         steptimer.mark('destroy vm')
 
     status = 'succeeded' if success else 'failed'
-    logging.info('jobid %d: build %s, %s' % (jobid, status, steptimer.report()))
+    logging.info('build %s, %s' % (status, steptimer.report()))
 
     return success
