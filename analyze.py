@@ -146,7 +146,7 @@ def depends_from_hints(srcpkg, indir):
         # dependencies probably aren't needed at build time (if tests aren't
         # run), except for cygport to correctly discover them as
         # dependencies...)
-        for i in ['python', 'python3']:
+        for i in ['perl', 'python', 'python3']:
             if d.startswith(i):
                 build_deps.add(d)
 
@@ -183,10 +183,13 @@ def depends_from_cygport(content):
 
     # if we have any of the inherits in the first list, add the second list to
     # depends
-    for (pos, deps) in [(['python','python-distutils'], ['python']),
-                        (['python3', 'python3-distutils'], ['python3']),
-                        (['mate'], ['mate-common']),
-                        (['xfce4'], ['xfce4-dev-tools'])]:
+    for (pos, deps) in [
+            (['gnome2'], ['gnome-common']),
+            (['mate'], ['mate-common']),
+            (['python','python-distutils'], ['python']),
+            (['python3', 'python3-distutils'], ['python3']),
+            (['xfce4'], ['xfce4-dev-tools'])
+    ]:
         for i in pos:
             if i in inherits:
                 build_deps.update(deps)
@@ -223,9 +226,14 @@ def depends_from_cygport(content):
 # look up build depends in a list we keep
 #
 
+# XXX: put this in a separate file
+# XXX: should regex match on package name
 per_package_deps = {
-    'mutt': ['libxslt','docbook-xsl'],  # to build docbook documentation
     'git': ['bash-completion-devel'],   # needs updating for separate -devel package
+    'gobject-introspection' : ['flex'],
+    'maxima': ['recode', 'clisp'],
+    'mutt': ['libxslt','docbook-xsl'],  # to build docbook documentation
+    'perl-Unicode-LineBreak': ['libcrypt-devel'], # perl CORE dependency
 }
 
 def depends_from_database(srcpkg, indir):

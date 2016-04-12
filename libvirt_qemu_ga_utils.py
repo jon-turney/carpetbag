@@ -49,10 +49,15 @@ import time
 #
 
 # XXX: take care: an unescaped '\' in a path is not permitted in json
-def execute_ga_command(instance, command):
+def _exec_agent_cmd(instance, command):
     logging.debug("command %s" % re.sub('"buf-b64":".*"', '"buf-b64":"..."', command))
-    result = libvirt_qemu.qemuAgentCommand(instance, command, libvirt_qemu.VIR_DOMAIN_QEMU_AGENT_COMMAND_BLOCK, 0)
-    json_result = json.loads(result)
+
+    try:
+        result = libvirt_qemu.qemuAgentCommand(instance, command, libvirt_qemu.VIR_DOMAIN_QEMU_AGENT_COMMAND_BLOCK, 0)
+        json_result = json.loads(result)
+    except libvirt.libvirtError:
+        json_result = ''
+
     logging.debug("result %s " % re.sub('"buf-b64":".*"', '"buf-b64":"..."', json.dumps(json_result, sort_keys=True, indent=4)))
     return json_result
 
@@ -62,13 +67,9 @@ def execute_ga_command(instance, command):
 #
 
 PING = """{"execute":"guest-ping"}"""
-def guestPing(domain):
-    # XXX: push exception handling into execute_ga_command
-    try:
-        result = execute_ga_command(domain, PING)
-    except libvirt.libvirtError:
-        return False
 
+def guestPing(domain):
+    result = _exec_agent_cmd(domain, PING)
     return 'return' in result
 
 
@@ -89,20 +90,20 @@ CHUNK = 4096
 def guestFileRead(instance, path):
     file_handle = -1
     try:
-        file_handle = execute_ga_command(instance, FILE_OPEN % (path, 'r'))["return"]
+        file_handle = _exec_agent_cmd(instance, FILE_OPEN % (path, 'r'))["return"]
         # XXX: hard-coded constant
-        file_content = execute_ga_command(instance, FILE_READ % (file_handle, 1024000))["return"]["buf-b64"]
+        file_content = _exec_agent_cmd(instance, FILE_READ % (file_handle, 1024000))["return"]["buf-b64"]
     finally:
-        execute_ga_command(instance, FILE_CLOSE % file_handle)
+        _exec_agent_cmd(instance, FILE_CLOSE % file_handle)
     return base64.standard_b64decode(file_content)
 
 
 def guestFileCopyFrom(instance, guestPath, hostPath):
     logging.info("guestFileCopyFrom: guest %s -> host %s" % (guestPath, hostPath))
-    file_handle = execute_ga_command(instance, FILE_OPEN % (guestPath, 'r'))['return']
+    file_handle = _exec_agent_cmd(instance, FILE_OPEN % (guestPath, 'r'))['return']
     with open(hostPath, 'wb') as f:
         while True:
-            result = execute_ga_command(instance, FILE_READ % (file_handle, CHUNK))["return"]
+            result = _exec_agent_cmd(instance, FILE_READ % (file_handle, CHUNK))["return"]
             if result['eof']:
                 break
 
@@ -110,23 +111,23 @@ def guestFileCopyFrom(instance, guestPath, hostPath):
             content = base64.standard_b64decode(encoded_content)
             f.write(content)
 
-    execute_ga_command(instance, FILE_CLOSE % file_handle)
+    _exec_agent_cmd(instance, FILE_CLOSE % file_handle)
 
 
 def guestFileWrite(instance, path, content):
     content = base64.standard_b64encode(content).decode('ascii')
     file_handle = -1
     try:
-        file_handle = execute_ga_command(instance, FILE_OPEN % (path, 'w+'))["return"]
-        write_count = execute_ga_command(instance, FILE_WRITE % (file_handle, content))["return"]["count"]
+        file_handle = _exec_agent_cmd(instance, FILE_OPEN % (path, 'w+'))["return"]
+        write_count = _exec_agent_cmd(instance, FILE_WRITE % (file_handle, content))["return"]["count"]
     finally:
-        execute_ga_command(instance, FILE_CLOSE % file_handle)
+        _exec_agent_cmd(instance, FILE_CLOSE % file_handle)
     return write_count
 
 
 def guestFileCopyTo(instance, hostPath, guestPath):
     logging.info("guestFileCopyTo: host %s -> guest %s" % (hostPath, guestPath))
-    file_handle = execute_ga_command(instance, FILE_OPEN % (guestPath, 'w+'))["return"]
+    file_handle = _exec_agent_cmd(instance, FILE_OPEN % (guestPath, 'w+'))["return"]
     with open(hostPath, 'rb') as f:
         while True:
             content = f.read(CHUNK)
@@ -134,13 +135,13 @@ def guestFileCopyTo(instance, hostPath, guestPath):
                 break
 
             encoded_content = base64.standard_b64encode(content).decode('ascii')
-            write_count = execute_ga_command(instance, FILE_WRITE % (file_handle, encoded_content))["return"]["count"]
+            write_count = _exec_agent_cmd(instance, FILE_WRITE % (file_handle, encoded_content))["return"]["count"]
 
             # if write_count != content, there is some kind of error...
             if write_count != len(content):
                 logging.error("write error while copying to guest %d %d" % (write_count, len(content)))
 
-    execute_ga_command(instance, FILE_CLOSE % file_handle)
+    _exec_agent_cmd(instance, FILE_CLOSE % file_handle)
 
 #
 # invoke a command in the guest
@@ -153,13 +154,17 @@ GUEST_EXEC_STATUS="""{"execute":"guest-exec-status", "arguments":{"pid":%s}}"""
 def guestExec(instance, command, params):
     logging.info("guestExec: %s %s" % (command, ' '.join(params)))
     paramlist = ','.join(['"%s"' % p for p in params])
-    pid = execute_ga_command(instance, GUEST_EXEC % (command, paramlist))["return"]["pid"]
+    pid = _exec_agent_cmd(instance, GUEST_EXEC % (command, paramlist))["return"]["pid"]
 
     # poll for "exited" to change from "false", to indicate process has
-    # finished...  XXX: timeout
+    # finished...
+    #
+    # XXX: timeout
+    # XXX: there's no event that tells us the guest agent has some
+    # status change to communicate, so we have to poll here....
     i = 0
     while True:
-        result = execute_ga_command(instance, GUEST_EXEC_STATUS % (pid))['return']
+        result = _exec_agent_cmd(instance, GUEST_EXEC_STATUS % (pid))['return']
 
         if result['exited']:
             break

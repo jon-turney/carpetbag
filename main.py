@@ -87,7 +87,7 @@ while True:
     # pull queues
     logging.info('pulling')
     host='jon@tambora'
-    rsync_cmd="rsync -ar --itemize-changes --exclude='*.tmp' --remove-source-files"
+    rsync_cmd="rsync --recursive --times --itemize-changes --exclude='*.tmp' --remove-source-files"
     os.system('%s %s:/sourceware/cygwin-staging/queue/uploads/ %s' % (rsync_cmd, host, UPLOADS))
     os.system('%s %s:/sourceware/cygwin-staging/queue/dirq/ %s' % (rsync_cmd, host, q_root))
 

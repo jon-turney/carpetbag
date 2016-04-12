@@ -52,6 +52,8 @@ def build(srcpkg, outdir, package, jobid):
     vmid = 'buildvm_%d' % jobid
 
     # open a libvirt connection to hypervisor
+    libvirt.virInitialize()
+    libvirt.virEventRegisterDefaultImpl()
     conn = libvirt.open(None)
     if conn == None:
         logging.error('Failed to open connection to the hypervisor')
@@ -66,20 +68,9 @@ def build(srcpkg, outdir, package, jobid):
     # start vm, automatically clean up when we are done, unless debugging
     domain.createWithFlags(libvirt.VIR_DOMAIN_START_AUTODESTROY if not debug else 0)
 
-    # wait for the VM to start up and get into a state where guest-agent can
-    # respond...
-    for i in range(1,5):
-        if guestPing(domain):
-            break
-
-        time.sleep(60)
-    else: # no break
-        # timeout waiting for VM to start
-        #
-        # sometimes the guest agent seems to break and not start properly, need
-        # to deal with that case, somehow...
-        pass
-    # XXX use an event to wait for this... ???
+    # wait for vm to boot up
+    wait_for_guest_agent(conn, domain, 5*60)
+    guestPing(domain)
 
     steptimer.mark('boot')
 
@@ -139,3 +130,37 @@ def build(srcpkg, outdir, package, jobid):
     logging.info('build %s, %s' % (status, steptimer.report()))
 
     return success
+
+#
+# wait for the VM to start up and get into a state where guest-agent can
+# respond
+#
+# sometimes the guest agent seems to break and not start properly, so have a
+# timeout to deal with that case...
+#
+# (XXX: really this is a bit inside-out; this module might be better rewritten
+# as a state machine which responds to events from the domain)
+#
+
+def wait_for_guest_agent(conn, domain, timeout):
+    done = False
+
+    def timeoutEventCallback(timer, opaque):
+        logging.info("timeout event:")
+        nonlocal done
+        done = True
+
+    def domainEventAgentLifecycleCallback (conn, dom, state, reason, opaque):
+        logging.info("agentLifecycle event: domain '%s' state %d reason %d" % (dom.name(), state, reason))
+        if state == libvirt.VIR_CONNECT_DOMAIN_EVENT_AGENT_LIFECYCLE_STATE_CONNECTED:
+            nonlocal done
+            done = True
+
+    timer_id = libvirt.virEventAddTimeout(timeout*1000, timeoutEventCallback, None)
+
+    conn.domainEventRegisterAny(domain, libvirt.VIR_DOMAIN_EVENT_ID_AGENT_LIFECYCLE, domainEventAgentLifecycleCallback, None)
+
+    while not done:
+        libvirt.virEventRunDefaultImpl()
+
+    libvirt.virEventRemoveTimeout(timer_id)

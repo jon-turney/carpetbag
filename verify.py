@@ -44,8 +44,8 @@ def capture_dirtree(basedir):
 
 def datadiff(a, b):
     return '\n' + '\n'.join(difflib.unified_diff(
-        pprint.pformat(a).splitlines(),
-        pprint.pformat(b).splitlines(),
+        pprint.pformat(a, width=0).splitlines(),
+        pprint.pformat(b, width=0).splitlines(),
         fromfile='upload', tofile='built')).replace('\n\n','\n')
 
 

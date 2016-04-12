@@ -40,6 +40,11 @@ if [ -f depends ] ; then
 fi
 
 if [ -n "${DEPEND}" ] ; then
+    # wait for network to become available
+    until [ -x //polidori/public/setup/setup-${SETUP_ARCH} ] ;  do
+        sleep 1
+    done;
+
     //polidori/public/setup/setup-${SETUP_ARCH} \
                              -q -P ${DEPEND} \
                              -s 'file:////polidori/public/cygwin'
