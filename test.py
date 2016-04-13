@@ -12,7 +12,7 @@ carpetbag_root = '/var/lib/carpetbag'
 q_root = os.path.join(carpetbag_root, 'dirq')
 UPLOADS = os.path.join(carpetbag_root, 'uploads')
 
-QUEUE = 'package_build_q'
+QUEUE = 'package_queue'
 dirq = QueueSimple(os.path.join(q_root, QUEUE))
 
 if len(sys.argv) > 1:

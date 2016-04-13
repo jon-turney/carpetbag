@@ -45,7 +45,7 @@ BASE_VMID='virtio'
 # to |outdir|, and discard the VM
 #
 
-def build(srcpkg, outdir, package, jobid):
+def build(srcpkg, outdir, package, jobid, logfile):
     logging.info('building %s to %s' % (os.path.basename(srcpkg), outdir))
 
     steptimer.start()
@@ -94,7 +94,6 @@ def build(srcpkg, outdir, package, jobid):
     # XXX: guest-agent doesn't seem to be capable of capturing output of cygwin
     # process (for some strange reason), so we arrange to redirect it to a file
     # and collect it here...
-    logfile = os.path.join('/var/log/carpetbag', 'build_%d.log' % jobid)
     guestFileCopyFrom(domain, r'C:\\vm_in\\output', logfile)
     logging.info('build logfile is %s' % (logfile))
 

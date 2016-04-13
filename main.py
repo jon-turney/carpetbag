@@ -21,10 +21,12 @@
 # THE SOFTWARE.
 #
 
+import datetime
 import errno
 import logging
 import os
 import shutil
+import sqlite3
 import tempfile
 import time
 
@@ -35,6 +37,7 @@ from verify import verify
 
 #
 debug = True
+test = True
 
 #
 #
@@ -64,7 +67,7 @@ os.makedirs('/var/log/carpetbag', exist_ok=True)
 carpetbag_root = '/var/lib/carpetbag'
 q_root = os.path.join(carpetbag_root, 'dirq')
 UPLOADS = os.path.join(carpetbag_root, 'uploads')
-QUEUE = 'package_build_q'
+QUEUE = 'package_queue'
 
 # initialize persistent jobid
 jobid_file = os.path.join(carpetbag_root, 'jobid')
@@ -74,6 +77,16 @@ try:
         jobid = int(f.read())
 except IOError:
     pass
+
+# initialize database
+def adapt_datetime(ts):
+    return time.mktime(ts.timetuple())
+
+sqlite3.register_adapter(datetime.datetime, adapt_datetime)
+
+conn = sqlite3.connect(os.path.join(carpetbag_root, 'carpetbag.db'))
+conn.execute('''CREATE TABLE IF NOT EXISTS jobs
+                (id integer primary key, srcpkg text, status text, log text, buildlog text, built integer, valid integer, start_timestamp integer, end_timestamp integer)''')
 
 logging.info('waiting for work on queue %s in %s' % (QUEUE, q_root))
 logging.info('uploaded files will be in %s' % (UPLOADS))
@@ -86,10 +99,20 @@ dirq.purge(1, 1)
 while True:
     # pull queues
     logging.info('pulling')
-    host='jon@tambora'
+
+    if test:
+        remote='jon@tambora:/sourceware/cygwin-staging/queue/'
+    else:
+        # key should be restricted in authorized_keys with:
+        #  'command="$HOME/bin/rrsync /sourceware/cygwin-staging/queue,no-agent-forwarding,no-port-forwarding,no-pty,no-user-rc,no-X11-forwardingh'
+        #
+        # the key needs to belong to an account which has permissions to remove
+        # files from that directory
+        remote='jturney@sourceware:'
+
     rsync_cmd="rsync --recursive --times --itemize-changes --exclude='*.tmp' --remove-source-files"
-    os.system('%s %s:/sourceware/cygwin-staging/queue/uploads/ %s' % (rsync_cmd, host, UPLOADS))
-    os.system('%s %s:/sourceware/cygwin-staging/queue/dirq/ %s' % (rsync_cmd, host, q_root))
+    os.system('%s %suploads/ %s' % (rsync_cmd, remote, UPLOADS))
+    os.system('%s %sdirq/ %s' % (rsync_cmd, remote, q_root))
 
     # look for work in queue
     logging.info('scanning queue for work')
@@ -106,51 +129,72 @@ while True:
             f.write(str(jobid))
 
         # start logging to job logfile
-        fh = logging.FileHandler(os.path.join('/var/log/carpetbag', '%d.log' % jobid))
+        job_logfile = os.path.join('/var/log/carpetbag', '%d.log' % jobid)
+        fh = logging.FileHandler(job_logfile)
         logging.getLogger().addHandler(fh)
 
         # the queue item is the relative path of the srcpkg file
         name = dirq.get(work).decode()
         logging.info('jobid %d: processing %s' % (jobid, name))
 
+        #
         reldir = os.path.dirname(name)
         outdir = tempfile.mkdtemp(prefix='carpetbag_')
         indir = os.path.join(UPLOADS, reldir)
 
-        # XXX: only handle x86_64, at the moment
-        arch = name.split(os.sep)[0]
-        if arch != 'x86_64':
-            logging.warning('arch %s, not yet handled' % arch)
-        else:
-            srcpkg = os.path.join(UPLOADS, name)
+        # store in database
+        conn.execute("INSERT INTO jobs VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                     (jobid, name, 'processing', job_logfile, '', 0, 0, datetime.datetime.now(), 'NULL'))
+        conn.commit()
 
-            # examine the source package
-            package = analyze(srcpkg, indir)
+        status = 'exception'
+        try:
+            # XXX: only handle x86_64, at the moment
+            arch = name.split(os.sep)[0]
+            if arch != 'x86_64':
+                build_logfile = ''
+                logging.warning('arch %s, not yet handled' % arch)
+            else:
+                srcpkg = os.path.join(UPLOADS, name)
 
-            if package.kind:
-                # build the packages
-                built = build(srcpkg, os.path.join(outdir, arch, 'release'), package, jobid)
-                if built:
-                    # verify built package
-                    valid = verify(indir, os.path.join(outdir, reldir))
+                # examine the source package
+                package = analyze(srcpkg, indir)
 
-        # one line summary of this job
-        logging.info('jobid %d: processed %s, build %s, verify %s' % (jobid, name, color_result(built), color_result(valid)))
+                if package.kind:
+                    # build the packages
+                    build_logfile = os.path.join('/var/log/carpetbag', 'build_%d.log' % jobid)
+                    built = build(srcpkg, os.path.join(outdir, arch, 'release'), package, jobid, build_logfile)
+                    if built:
+                        # verify built package
+                        valid = verify(indir, os.path.join(outdir, reldir))
 
-        # remove item from queue
-        dirq.remove(work)
-        dirq.purge()
+            # one line summary of this job
+            logging.info('jobid %d: processed %s, build %s, verify %s' % (jobid, name, color_result(built), color_result(valid)))
 
-        # clean up
-        if not debug:
-            logging.info('removing %s' % outdir)
-            shutil.rmtree(outdir)
-            logging.info('removing %s' % indir)
-            shutil.rmtree(indir)
+            # remove item from queue
+            dirq.remove(work)
+            dirq.purge()
 
-        # stop logging to job logfile
-        logging.getLogger().removeHandler(fh)
+            # clean up
+            if not debug:
+                logging.info('removing %s' % outdir)
+                shutil.rmtree(outdir)
+                logging.info('removing %s' % indir)
+                shutil.rmtree(indir)
 
-    # wait a minute
+            status = 'processed'
+        finally:
+            # stop logging to job logfile
+            logging.getLogger().removeHandler(fh)
+
+            # update in database
+            conn.execute("UPDATE jobs SET status = ?, buildlog = ?, built = ?, valid = ?, end_timestamp = ? WHERE id = ?",
+                      (status, build_logfile, built, valid, datetime.datetime.now(), jobid))
+            conn.commit()
+
+    # wait a while
     logging.info('waiting')
-    time.sleep(60)
+    if test:
+        time.sleep(60)
+    else:
+        time.sleep(60*60)

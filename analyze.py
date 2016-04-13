@@ -188,6 +188,7 @@ def depends_from_cygport(content):
             (['mate'], ['mate-common']),
             (['python','python-distutils'], ['python']),
             (['python3', 'python3-distutils'], ['python3']),
+            (['texlive'], ['texlive-collection-basic']),  # to ensure correct run-time dependency generation
             (['xfce4'], ['xfce4-dev-tools'])
     ]:
         for i in pos:

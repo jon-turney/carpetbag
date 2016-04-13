@@ -27,6 +27,7 @@ import logging
 import os
 import pprint
 import re
+import sys
 import tarfile
 
 #
@@ -44,8 +45,8 @@ def capture_dirtree(basedir):
 
 def datadiff(a, b):
     return '\n' + '\n'.join(difflib.unified_diff(
-        pprint.pformat(a, width=0).splitlines(),
-        pprint.pformat(b, width=0).splitlines(),
+        pprint.pformat(a).splitlines(),
+        pprint.pformat(b).splitlines(),
         fromfile='upload', tofile='built')).replace('\n\n','\n')
 
 
