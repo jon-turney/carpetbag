@@ -30,6 +30,14 @@ import tarfile
 
 PackageKind = namedtuple('PackageKind', 'kind script depends')
 
+# the mapping from cross-host target triples to package prefixes
+cross_package_prefixes = {
+    'i686-w64-mingw32'   : 'mingw64-i686-',
+    'x86_64-w64-mingw32' : 'mingw64-x86_64-',
+    'i686-pc-cygwin'     : 'cygwin32-',
+    'x86_64-pc-cygwin'   : 'cygwin64-',
+}
+
 #
 # analyze the source package
 #
@@ -128,7 +136,14 @@ def depends_from_hints(srcpkg, indir):
             continue
 
         # anything -devel gets passed straight through
-        if re.match(r'^.*-devel$', d):
+        if d.endswith('-devel'):
+            build_deps.add(d)
+            continue
+
+        # anything which appears to be a cross-package gets passed straight
+        # through (as they don't usually have separate runtime and buildtime
+        # packages)
+        if any([d.startswith(p) for p in cross_package_prefixes.values()]):
             build_deps.add(d)
             continue
 
@@ -185,6 +200,7 @@ def depends_from_cygport(content):
     # depends
     for (pos, deps) in [
             (['gnome2'], ['gnome-common']),
+            (['kf5'], ['cmake', 'extra-cmake-modules']),
             (['mate'], ['mate-common']),
             (['python','python-distutils'], ['python']),
             (['python3', 'python3-distutils'], ['python3']),
@@ -202,17 +218,7 @@ def depends_from_cygport(content):
     # for cross-packages, we need the appropriate cross-toolchain
     if 'cross' in inherits:
         cross_host = re.search(r'^CROSS_HOST\s*=\s*"?(.*?)"?\s*$', content, re.MULTILINE).group(1)
-
-        pkg_prefix = ''
-        if cross_host == 'i686-w64-mingw32':
-            pkg_prefix = 'mingw64-i686-'
-        elif cross_host == 'x86_64-w64-mingw32':
-            pkg_prefix = 'mingw64-x86_64-'
-        elif cross_host == 'i686-pc-cygwin':
-            pkg_prefix = 'cygwin32-'
-        elif cross_host == 'x86_64-pc-cygwin':
-            pkg_prefix = 'cygwin64-'
-
+        pkg_prefix = cross_package_prefixes.get(cross_host, '')
         logging.info('cross_host: %s, pkg_prefix: %s' % (cross_host, pkg_prefix))
 
         for tool in ['binutils', 'gcc-core', 'gcc-g++', 'pkg-config']:

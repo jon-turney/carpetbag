@@ -77,10 +77,10 @@ def verify(indir, outdir):
     outdirtree = capture_dirtree(outdir)
 
     # make a copy of indirtree, but replace .bz|.gz|.lzma extensions with .xz,
-    # the current compression
+    # the current compression and remove .sig files
     canonindirtree = {}
     for p in indirtree:
-        canonindirtree[p] = [re.sub('.(bz2|gz|lzma)$', '.xz', f) for f in indirtree[p]]
+        canonindirtree[p] = [re.sub('.(bz2|gz|lzma)$', '.xz', f) for f in indirtree[p] if not f.endswith('.sig')]
 
     if canonindirtree != outdirtree:
         logging.warning('file manifests are different')

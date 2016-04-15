@@ -37,7 +37,7 @@ from verify import verify
 
 #
 debug = True
-test = True
+test = False
 
 #
 #
@@ -77,6 +77,8 @@ try:
         jobid = int(f.read())
 except IOError:
     pass
+with open(jobid_file, 'w') as f:
+    f.write(str(jobid))
 
 # initialize database
 def adapt_datetime(ts):
@@ -108,7 +110,7 @@ while True:
         #
         # the key needs to belong to an account which has permissions to remove
         # files from that directory
-        remote='jturney@sourceware:'
+        remote='cygwin-admin@sourceware.org:'
 
     rsync_cmd="rsync --recursive --times --itemize-changes --exclude='*.tmp' --remove-source-files"
     os.system('%s %suploads/ %s' % (rsync_cmd, remote, UPLOADS))
@@ -120,21 +122,39 @@ while True:
         if not dirq.lock(work):
             continue
 
-        built = False
-        valid = False
-
         # increment jobid
+        with open(jobid_file) as f:
+            jobid = int(f.read())
         jobid = jobid + 1
         with open(jobid_file, 'w') as f:
             f.write(str(jobid))
+
+        # the queue item is the relative path of the srcpkg file
+        name = dirq.get(work).decode()
+        logging.info('jobid %d: queueing %s' % (jobid, name))
+
+        # store in database
+        conn.execute("INSERT INTO jobs VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                     (jobid, name, 'pending', '', '', None, None, None, None))
+        conn.commit()
+
+        # remove item from queue
+        dirq.remove(work)
+
+    # clean up queue
+    dirq.purge()
+
+    # look for pending items in database
+    pending = list(conn.execute("SELECT id, srcpkg FROM jobs WHERE status = 'pending'"))
+    for jobid, name in pending:
+        built = False
+        valid = None
 
         # start logging to job logfile
         job_logfile = os.path.join('/var/log/carpetbag', '%d.log' % jobid)
         fh = logging.FileHandler(job_logfile)
         logging.getLogger().addHandler(fh)
 
-        # the queue item is the relative path of the srcpkg file
-        name = dirq.get(work).decode()
         logging.info('jobid %d: processing %s' % (jobid, name))
 
         #
@@ -142,38 +162,30 @@ while True:
         outdir = tempfile.mkdtemp(prefix='carpetbag_')
         indir = os.path.join(UPLOADS, reldir)
 
-        # store in database
-        conn.execute("INSERT INTO jobs VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                     (jobid, name, 'processing', job_logfile, '', 0, 0, datetime.datetime.now(), 'NULL'))
+        # update in database
+        conn.execute("UPDATE jobs SET status = ?, log = ?, start_timestamp = ? WHERE id = ?",
+                     ('processing', job_logfile, datetime.datetime.now(), jobid))
         conn.commit()
 
         status = 'exception'
         try:
-            # XXX: only handle x86_64, at the moment
             arch = name.split(os.sep)[0]
-            if arch != 'x86_64':
-                build_logfile = ''
-                logging.warning('arch %s, not yet handled' % arch)
-            else:
-                srcpkg = os.path.join(UPLOADS, name)
 
-                # examine the source package
-                package = analyze(srcpkg, indir)
+            srcpkg = os.path.join(UPLOADS, name)
 
-                if package.kind:
-                    # build the packages
-                    build_logfile = os.path.join('/var/log/carpetbag', 'build_%d.log' % jobid)
-                    built = build(srcpkg, os.path.join(outdir, arch, 'release'), package, jobid, build_logfile)
-                    if built:
-                        # verify built package
-                        valid = verify(indir, os.path.join(outdir, reldir))
+            # examine the source package
+            package = analyze(srcpkg, indir)
+
+            if package.kind:
+                # build the packages
+                build_logfile = os.path.join('/var/log/carpetbag', 'build_%d.log' % jobid)
+                built = build(srcpkg, os.path.join(outdir, arch, 'release'), package, jobid, build_logfile, arch)
+                if built:
+                    # verify built package
+                    valid = verify(indir, os.path.join(outdir, reldir))
 
             # one line summary of this job
             logging.info('jobid %d: processed %s, build %s, verify %s' % (jobid, name, color_result(built), color_result(valid)))
-
-            # remove item from queue
-            dirq.remove(work)
-            dirq.purge()
 
             # clean up
             if not debug:

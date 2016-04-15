@@ -29,6 +29,9 @@ BUILDDIR=/build
 ARCH=$(uname -m)
 SETUP_ARCH=${ARCH/i686/x86}
 
+# note the amount of free space
+AVAIL_INITIAL=$(df --output=avail / | sed 1d)
+
 # unpack the src package into work directory
 rm -rf ${BUILDDIR}
 mkdir ${BUILDDIR}
@@ -90,3 +93,7 @@ fi
 cd ${OUTDIR}
 find * -type f >manifest
 cat manifest
+
+# compute used disk space
+AVAIL_FINAL=$(df --output=avail / | sed 1d)
+echo "free space: initial ${AVAIL_INITIAL}, final ${AVAIL_FINAL}, delta $((${AVAIL_INITIAL}-${AVAIL_FINAL}))"

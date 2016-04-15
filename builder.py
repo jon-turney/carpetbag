@@ -33,19 +33,28 @@ import steptimer
 #
 debug = False
 
-# this is the base VM image we clone for each build
+# this is the base VM image for each arch that we clone for each build
 #
 # base cygwin installed
 # package cygport installed
 #
-BASE_VMID='virtio'
+BASE_VMID = {
+    'x86_64': 'virtio',
+    'x86':    'virtio',
+}
+
+# path to bash, for each arch
+bash_path = {
+    'x86_64': r'C:\\cygwin64\\bin\\bash.exe',
+    'x86':    r'C:\\cygwin\\bin\\bash.exe',
+}
 
 #
 # clone a fresh VM, build the given |srcpkg| in it, retrieve the build products
 # to |outdir|, and discard the VM
 #
 
-def build(srcpkg, outdir, package, jobid, logfile):
+def build(srcpkg, outdir, package, jobid, logfile, arch):
     logging.info('building %s to %s' % (os.path.basename(srcpkg), outdir))
 
     steptimer.start()
@@ -60,7 +69,7 @@ def build(srcpkg, outdir, package, jobid, logfile):
         return False
 
     # create VM
-    clone_storage = clone(conn, BASE_VMID, vmid)
+    clone_storage = clone(conn, BASE_VMID[arch], vmid)
     steptimer.mark('clone vm')
 
     domain = conn.lookupByName(vmid)
@@ -88,7 +97,7 @@ def build(srcpkg, outdir, package, jobid, logfile):
     steptimer.mark('put')
 
     # attempt the build
-    success = guestExec(domain, r'C:\\cygwin64\\bin\\bash.exe', ['-l','/cygdrive/c/vm_in/wrapper.sh', os.path.basename(srcpkg), r'C:\\vm_out', package.script, package.kind])
+    success = guestExec(domain, bash_path[arch], ['-l','/cygdrive/c/vm_in/wrapper.sh', os.path.basename(srcpkg), r'C:\\vm_out', package.script, package.kind])
     steptimer.mark('build')
 
     # XXX: guest-agent doesn't seem to be capable of capturing output of cygwin

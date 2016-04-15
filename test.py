@@ -18,6 +18,11 @@ dirq = QueueSimple(os.path.join(q_root, QUEUE))
 if len(sys.argv) > 1:
     # a package was specified on the command line
     p = sys.argv[1]
+
+    if len(sys.argv) > 2:
+        arch = sys.argv[2]
+    else:
+        arch = 'x86_64'
 else:
     # otherwise, pick a random package
     package_list = []
@@ -30,9 +35,7 @@ else:
                 package_list.append(pkg)
 
     p = random.choice(package_list)
-
-# only x86_64, at the moment
-arch = 'x86_64'
+    arch = random.choice(['x86_64', 'x86'])
 
 # find srcpkg for the latest (according to mtime) version
 mtime = 0

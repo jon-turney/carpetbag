@@ -22,6 +22,9 @@ optional: dnf --enablerepo=virtio-win-latest upgrade virtio-win
 
 * create VM
 
+Default 20GB disk size is a little on the small side.
+There needs to be sufficient free space to download and install all the dependencies, and unpack and build the largest source package.
+
 optional: use virtio disk and NIC drivers
 (as per http://serverfault.com/questions/703675/install-windows-2012-r2-over-kvm-virtualizaton)
 
