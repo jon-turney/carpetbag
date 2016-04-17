@@ -85,10 +85,10 @@ def analyze(srcpkg, indir):
                 else:
                     kind = 'g-b-s'
 
+                logging.info('srcpkg contains a %s-style build script %s' % (kind, fn))
                 depends = set.union(depends_from_hints(srcpkg, indir),
+                                    depends_from_cygbuild(),
                                     depends_from_database(srcpkg, indir))
-
-                logging.info('%s script %s' % (kind, fn))
                 return PackageKind(kind, script=fn, depends=','.join(sorted(depends)))
             elif len(scripts) > 1:
                 logging.error('too many scripts in srcpkg %s', srcpkg)
@@ -161,7 +161,7 @@ def depends_from_hints(srcpkg, indir):
         # dependencies probably aren't needed at build time (if tests aren't
         # run), except for cygport to correctly discover them as
         # dependencies...)
-        for i in ['perl', 'python', 'python3']:
+        for i in ['perl', 'python', 'python3', 'ruby']:
             if d.startswith(i):
                 build_deps.add(d)
 
@@ -205,7 +205,8 @@ def depends_from_cygport(content):
             (['python','python-distutils'], ['python']),
             (['python3', 'python3-distutils'], ['python3']),
             (['texlive'], ['texlive-collection-basic']),  # to ensure correct run-time dependency generation
-            (['xfce4'], ['xfce4-dev-tools'])
+            (['xfce4'], ['xfce4-dev-tools']),
+            (['xorg'], ['xorg-util-macros']),
     ]:
         for i in pos:
             if i in inherits:
@@ -236,9 +237,12 @@ def depends_from_cygport(content):
 # XXX: put this in a separate file
 # XXX: should regex match on package name
 per_package_deps = {
+    'gcc': ['gcc-ada'],  # gnat is required to build gnat
     'git': ['bash-completion-devel'],   # needs updating for separate -devel package
     'gobject-introspection' : ['flex'],
     'maxima': ['recode', 'clisp'],
+    'mingw64-i686-fftw3' : ['mingw64-i686-gcc-fortran'],
+    'mingw64-x86_64-fftw3' : ['mingw64-x86_64-gcc-fortran'],
     'mutt': ['libxslt','docbook-xsl'],  # to build docbook documentation
     'perl-Unicode-LineBreak': ['libcrypt-devel'], # perl CORE dependency
 }
@@ -273,4 +277,14 @@ def depends_from_depend(depend):
             build_deps.add(atom)
 
     logging.info('build dependencies (from DEPEND): %s' % (','.join(sorted(build_deps))))
+    return build_deps
+
+#
+# cygbuild style build scripts require quilt
+#
+
+def depends_from_cygbuild():
+    build_deps = set()
+    build_deps.add('quilt')
+    logging.info('build dependencies (for cygbuild): %s' % (','.join(sorted(build_deps))))
     return build_deps

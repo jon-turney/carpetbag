@@ -51,6 +51,10 @@ if [ -n "${DEPEND}" ] ; then
     //polidori/public/setup/setup-${SETUP_ARCH} \
                              -q -P ${DEPEND} \
                              -s 'file:////polidori/public/cygwin'
+
+
+    # packages may have added files to /etc/profile.d/, so re-read profile
+    source /etc/profile
 fi
 
 # move to the directory containing the build script
@@ -96,4 +100,4 @@ cat manifest
 
 # compute used disk space
 AVAIL_FINAL=$(df --output=avail / | sed 1d)
-echo "free space: initial ${AVAIL_INITIAL}, final ${AVAIL_FINAL}, delta $((${AVAIL_INITIAL}-${AVAIL_FINAL}))"
+echo "free space: initial ${AVAIL_INITIAL}, final ${AVAIL_FINAL}, delta $((${AVAIL_INITIAL}-${AVAIL_FINAL})) blocks"

@@ -25,6 +25,7 @@ import datetime
 import errno
 import logging
 import os
+import sched
 import shutil
 import sqlite3
 import tempfile
@@ -69,6 +70,8 @@ q_root = os.path.join(carpetbag_root, 'dirq')
 UPLOADS = os.path.join(carpetbag_root, 'uploads')
 QUEUE = 'package_queue'
 
+dirq = QueueSimple(os.path.join(q_root, QUEUE))
+
 # initialize persistent jobid
 jobid_file = os.path.join(carpetbag_root, 'jobid')
 jobid = 0
@@ -90,16 +93,15 @@ conn = sqlite3.connect(os.path.join(carpetbag_root, 'carpetbag.db'))
 conn.execute('''CREATE TABLE IF NOT EXISTS jobs
                 (id integer primary key, srcpkg text, status text, log text, buildlog text, built integer, valid integer, start_timestamp integer, end_timestamp integer)''')
 
-logging.info('waiting for work on queue %s in %s' % (QUEUE, q_root))
-logging.info('uploaded files will be in %s' % (UPLOADS))
+# initialize scheduler
+s = sched.scheduler()
 
-dirq = QueueSimple(os.path.join(q_root, QUEUE))
+#
+#
+#
 
-# purge any stale elements, unlock any locked elements
-dirq.purge(1, 1)
-
-while True:
-    # pull queues
+# pull queues
+def pull_queue():
     logging.info('pulling')
 
     if test:
@@ -144,15 +146,26 @@ while True:
     # clean up queue
     dirq.purge()
 
-    # look for pending items in database
+    # schedule to run again
+    # (there's no point pulling any more often than calm runs)
+    if test:
+        delay = 60
+    else:
+        delay = 60*60
+    logging.info('will pull again in %d seconds', delay)
+    s.enter(delay, 0, pull_queue)
+
+# look for pending items in database
+def pending_work():
     pending = list(conn.execute("SELECT id, srcpkg FROM jobs WHERE status = 'pending'"))
     for jobid, name in pending:
         built = False
         valid = None
+        build_logfile = None
 
         # start logging to job logfile
         job_logfile = os.path.join('/var/log/carpetbag', '%d.log' % jobid)
-        fh = logging.FileHandler(job_logfile)
+        fh = logging.FileHandler(job_logfile, mode='w')
         logging.getLogger().addHandler(fh)
 
         logging.info('jobid %d: processing %s' % (jobid, name))
@@ -164,7 +177,7 @@ while True:
 
         # update in database
         conn.execute("UPDATE jobs SET status = ?, log = ?, start_timestamp = ? WHERE id = ?",
-                     ('processing', job_logfile, datetime.datetime.now(), jobid))
+                     ('in-progress', job_logfile, datetime.datetime.now(), jobid))
         conn.commit()
 
         status = 'exception'
@@ -204,9 +217,26 @@ while True:
                       (status, build_logfile, built, valid, datetime.datetime.now(), jobid))
             conn.commit()
 
-    # wait a while
-    logging.info('waiting')
-    if test:
-        time.sleep(60)
-    else:
-        time.sleep(60*60)
+    # schedule to run again after waiting a while
+    delay = 60
+    logging.info('will process work again in %d seconds', delay)
+    s.enter(delay, 0, pending_work)
+
+#
+#
+#
+
+#
+logging.info('waiting for work on queue %s in %s' % (QUEUE, q_root))
+logging.info('uploaded files will be in %s' % (UPLOADS))
+
+# purge any stale elements, unlock any locked elements
+dirq.purge(1, 1)
+
+# use a scheduler to alternate between the tasks of pulling and processing
+# work with appropriate periodicity
+s.enter(0, 0, pull_queue)
+s.enter(0, 0, pending_work)
+
+while True:
+    s.run()

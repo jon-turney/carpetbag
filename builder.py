@@ -63,7 +63,7 @@ def build(srcpkg, outdir, package, jobid, logfile, arch):
     # open a libvirt connection to hypervisor
     libvirt.virInitialize()
     libvirt.virEventRegisterDefaultImpl()
-    conn = libvirt.open(None)
+    conn = libvirt.open('qemu:///system')
     if conn == None:
         logging.error('Failed to open connection to the hypervisor')
         return False
