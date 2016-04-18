@@ -52,11 +52,8 @@ import time
 def _exec_agent_cmd(instance, command):
     logging.debug("command %s" % re.sub('"buf-b64":".*"', '"buf-b64":"..."', command))
 
-    try:
-        result = libvirt_qemu.qemuAgentCommand(instance, command, libvirt_qemu.VIR_DOMAIN_QEMU_AGENT_COMMAND_BLOCK, 0)
-        json_result = json.loads(result)
-    except libvirt.libvirtError:
-        json_result = ''
+    result = libvirt_qemu.qemuAgentCommand(instance, command, libvirt_qemu.VIR_DOMAIN_QEMU_AGENT_COMMAND_BLOCK, 0)
+    json_result = json.loads(result)
 
     logging.debug("result %s " % re.sub('"buf-b64":".*"', '"buf-b64":"..."', json.dumps(json_result, sort_keys=True, indent=4)))
     return json_result
@@ -69,8 +66,11 @@ def _exec_agent_cmd(instance, command):
 PING = """{"execute":"guest-ping"}"""
 
 def guestPing(domain):
-    result = _exec_agent_cmd(domain, PING)
-    return 'return' in result
+    try:
+        result = _exec_agent_cmd(domain, PING)
+        return 'return' in result
+    except libvirt.libvirtError:
+        return False
 
 
 #
@@ -93,25 +93,28 @@ def guestFileRead(instance, path):
         file_handle = _exec_agent_cmd(instance, FILE_OPEN % (path, 'r'))["return"]
         # XXX: hard-coded constant
         file_content = _exec_agent_cmd(instance, FILE_READ % (file_handle, 1024000))["return"]["buf-b64"]
-    finally:
         _exec_agent_cmd(instance, FILE_CLOSE % file_handle)
+    except libvirt.libvirtError:
+        return ''
     return base64.standard_b64decode(file_content)
 
 
 def guestFileCopyFrom(instance, guestPath, hostPath):
     logging.info("guestFileCopyFrom: guest %s -> host %s" % (guestPath, hostPath))
-    file_handle = _exec_agent_cmd(instance, FILE_OPEN % (guestPath, 'r'))['return']
-    with open(hostPath, 'wb') as f:
-        while True:
-            result = _exec_agent_cmd(instance, FILE_READ % (file_handle, CHUNK))["return"]
-            if result['eof']:
-                break
+    try:
+        file_handle = _exec_agent_cmd(instance, FILE_OPEN % (guestPath, 'r'))['return']
+        with open(hostPath, 'wb') as f:
+            while True:
+                result = _exec_agent_cmd(instance, FILE_READ % (file_handle, CHUNK))["return"]
+                if result['eof']:
+                    break
 
-            encoded_content = result['buf-b64']
-            content = base64.standard_b64decode(encoded_content)
-            f.write(content)
-
-    _exec_agent_cmd(instance, FILE_CLOSE % file_handle)
+                encoded_content = result['buf-b64']
+                content = base64.standard_b64decode(encoded_content)
+                f.write(content)
+        _exec_agent_cmd(instance, FILE_CLOSE % file_handle)
+    except libvirt.libvirtError:
+        return
 
 
 def guestFileWrite(instance, path, content):
@@ -120,28 +123,33 @@ def guestFileWrite(instance, path, content):
     try:
         file_handle = _exec_agent_cmd(instance, FILE_OPEN % (path, 'w+'))["return"]
         write_count = _exec_agent_cmd(instance, FILE_WRITE % (file_handle, content))["return"]["count"]
-    finally:
         _exec_agent_cmd(instance, FILE_CLOSE % file_handle)
+    except libvirt.libvirtError:
+        return 0
     return write_count
 
 
 def guestFileCopyTo(instance, hostPath, guestPath):
     logging.info("guestFileCopyTo: host %s -> guest %s" % (hostPath, guestPath))
-    file_handle = _exec_agent_cmd(instance, FILE_OPEN % (guestPath, 'w+'))["return"]
-    with open(hostPath, 'rb') as f:
-        while True:
-            content = f.read(CHUNK)
-            if not content:
-                break
+    try:
+        file_handle = _exec_agent_cmd(instance, FILE_OPEN % (guestPath, 'w+'))["return"]
+        with open(hostPath, 'rb') as f:
+            while True:
+                content = f.read(CHUNK)
+                if not content:
+                    break
 
-            encoded_content = base64.standard_b64encode(content).decode('ascii')
-            write_count = _exec_agent_cmd(instance, FILE_WRITE % (file_handle, encoded_content))["return"]["count"]
+                encoded_content = base64.standard_b64encode(content).decode('ascii')
+                write_count = _exec_agent_cmd(instance, FILE_WRITE % (file_handle, encoded_content))["return"]["count"]
 
-            # if write_count != content, there is some kind of error...
-            if write_count != len(content):
-                logging.error("write error while copying to guest %d %d" % (write_count, len(content)))
+                # if write_count != content, there is some kind of error...
+                if write_count != len(content):
+                    logging.error("write error while copying to guest %d %d" % (write_count, len(content)))
 
-    _exec_agent_cmd(instance, FILE_CLOSE % file_handle)
+        _exec_agent_cmd(instance, FILE_CLOSE % file_handle)
+    except libvirt.libvirtError:
+        return
+
 
 #
 # invoke a command in the guest
@@ -154,42 +162,47 @@ GUEST_EXEC_STATUS="""{"execute":"guest-exec-status", "arguments":{"pid":%s}}"""
 def guestExec(instance, command, params):
     logging.info("guestExec: %s %s" % (command, ' '.join(params)))
     paramlist = ','.join(['"%s"' % p for p in params])
-    pid = _exec_agent_cmd(instance, GUEST_EXEC % (command, paramlist))["return"]["pid"]
+    try:
+        pid = _exec_agent_cmd(instance, GUEST_EXEC % (command, paramlist))["return"]["pid"]
 
-    # poll for "exited" to change from "false", to indicate process has
-    # finished...
-    #
-    # XXX: timeout
-    # XXX: there's no event that tells us the guest agent has some
-    # status change to communicate, so we have to poll here....
-    i = 0
-    while True:
-        result = _exec_agent_cmd(instance, GUEST_EXEC_STATUS % (pid))['return']
+        # poll for "exited" to change from "false", to indicate process has
+        # finished...
+        #
+        # XXX: timeout
+        # XXX: there's no event that tells us the guest agent has some
+        # status change to communicate, so we have to poll here....
+        i = 0
+        while True:
+            result = _exec_agent_cmd(instance, GUEST_EXEC_STATUS % (pid))
 
-        if result['exited']:
-            break
+            result = result['return']
+            if result['exited']:
+                break
 
-        time.sleep(1)
-        i += 1
-        if ((i % 60) == 0):
-            print('.', end='', flush=True)
+            time.sleep(1)
+            i += 1
+            if ((i % 60) == 0):
+                print('.', end='', flush=True)
 
-    if (i >= 60):
-        print('')
+        if (i >= 60):
+            print('')
 
-    exitcode = result['exitcode']
-    logging.info('exitcode %d' % exitcode)
+        exitcode = result['exitcode']
+        logging.info('exitcode %d' % exitcode)
 
-    if 'out-data' in result:
-        stdout = base64.standard_b64decode(result['out-data'])
-        if 'out-truncated' in result:
-            stdout += '(truncated)'
-        logging.info('stdout %s' % stdout)
+        if 'out-data' in result:
+            stdout = base64.standard_b64decode(result['out-data'])
+            if 'out-truncated' in result:
+                stdout += '(truncated)'
+            logging.info('stdout %s' % stdout)
 
-    if 'err-data' in result:
-        stderr = base64.standard_b64decode(result['err-data'])
-        if 'err-truncated' in result:
-            stderr += '(truncated)'
-        logging.info('stderr %s' % stderr)
+        if 'err-data' in result:
+            stderr = base64.standard_b64decode(result['err-data'])
+            if 'err-truncated' in result:
+                stderr += '(truncated)'
+            logging.info('stderr %s' % stderr)
+
+    except libvirt.libvirtError:
+        return -1
 
     return (exitcode == 0)

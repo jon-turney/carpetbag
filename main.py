@@ -64,6 +64,11 @@ def color_result(success):
 logging.basicConfig(level=logging.INFO, format='%(levelname)s: %(message)s')
 os.makedirs('/var/log/carpetbag', exist_ok=True)
 
+fh = logging.FileHandler(os.path.join('/var/log/carpetbag', 'carpetbag.log'))
+fh.setFormatter(logging.Formatter('%(asctime)s - %(levelname)-8s - %(message)s'))
+fh.setLevel(logging.DEBUG)
+logging.getLogger().addHandler(fh)
+
 # initialize work queue
 carpetbag_root = '/var/lib/carpetbag'
 q_root = os.path.join(carpetbag_root, 'dirq')
@@ -208,6 +213,9 @@ def pending_work():
                 shutil.rmtree(indir)
 
             status = 'processed'
+        except:
+            logging.exception('')
+            raise
         finally:
             # stop logging to job logfile
             logging.getLogger().removeHandler(fh)
