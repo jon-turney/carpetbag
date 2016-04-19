@@ -25,10 +25,10 @@ import datetime
 import errno
 import logging
 import os
-import sched
 import shutil
 import sqlite3
 import tempfile
+import threading
 import time
 
 from dirq.QueueSimple import QueueSimple
@@ -98,15 +98,13 @@ conn = sqlite3.connect(os.path.join(carpetbag_root, 'carpetbag.db'))
 conn.execute('''CREATE TABLE IF NOT EXISTS jobs
                 (id integer primary key, srcpkg text, status text, log text, buildlog text, built integer, valid integer, start_timestamp integer, end_timestamp integer)''')
 
-# initialize scheduler
-s = sched.scheduler()
-
 #
 #
 #
 
 # pull queues
 def pull_queue():
+    conn = sqlite3.connect(os.path.join(carpetbag_root, 'carpetbag.db'))
     logging.info('pulling')
 
     if test:
@@ -151,26 +149,39 @@ def pull_queue():
     # clean up queue
     dirq.purge()
 
-    # schedule to run again
-    # (there's no point pulling any more often than calm runs)
-    if test:
-        delay = 60
-    else:
-        delay = 60*60
-    logging.info('will pull again in %d seconds', delay)
-    s.enter(delay, 0, pull_queue)
+
+def pull_queue_thread():
+    while True:
+        # pull queue
+        pull_queue()
+
+        # schedule to run again
+        # (there's no point pulling any more often than calm runs)
+        if test:
+            delay = 60
+        else:
+            delay = 60*60
+            logging.info('will pull again in %d seconds', delay)
+        time.sleep(delay)
+
 
 # look for pending items in database
 def pending_work():
+    conn = sqlite3.connect(os.path.join(carpetbag_root, 'carpetbag.db'))
     pending = list(conn.execute("SELECT id, srcpkg FROM jobs WHERE status = 'pending'"))
     for jobid, name in pending:
         built = False
         valid = None
         build_logfile = None
 
-        # start logging to job logfile
+        # start logging (of this thread only) to job logfile
+        this_thread = threading.get_ident()
+        def threadFilter(record):
+            return (record.thread == this_thread)
+
         job_logfile = os.path.join('/var/log/carpetbag', '%d.log' % jobid)
         fh = logging.FileHandler(job_logfile, mode='w')
+        fh.addFilter(threadFilter)
         logging.getLogger().addHandler(fh)
 
         logging.info('jobid %d: processing %s' % (jobid, name))
@@ -225,10 +236,17 @@ def pending_work():
                       (status, build_logfile, built, valid, datetime.datetime.now(), jobid))
             conn.commit()
 
-    # schedule to run again after waiting a while
-    delay = 60
-    logging.info('will process work again in %d seconds', delay)
-    s.enter(delay, 0, pending_work)
+
+def pending_work_thread():
+    while True:
+        # do any pending work
+        pending_work()
+
+        # schedule to run again after waiting a while
+        delay = 60
+        logging.info('will process work again in %d seconds', delay)
+        time.sleep(delay)
+
 
 #
 #
@@ -241,10 +259,5 @@ logging.info('uploaded files will be in %s' % (UPLOADS))
 # purge any stale elements, unlock any locked elements
 dirq.purge(1, 1)
 
-# use a scheduler to alternate between the tasks of pulling and processing
-# work with appropriate periodicity
-s.enter(0, 0, pull_queue)
-s.enter(0, 0, pending_work)
-
-while True:
-    s.run()
+threading.Thread(target=pull_queue_thread).start()
+threading.Thread(target=pending_work_thread).start()

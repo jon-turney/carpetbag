@@ -257,21 +257,34 @@ def depends_from_database(srcpkg, indir):
 # transform a cygport DEPEND atom list into a list of cygwin packages
 #
 
+pkgconfig_map = eval(open('pkgconfig-map').read())
+
 def depends_from_depend(depend):
     build_deps = set()
 
     for atom in depend.split():
-        # atoms of the form blah(foo) indicate a module foo for language blah
+        # atoms of the form blah(foo) indicate a module foo of type blah
         match = re.match(r'(.*)\((.*)\)', atom)
         if match:
-            lang = match.group(1)
+            deptype = match.group(1)
             module = match.group(2)
-            # so transform into a cygwin package name
-            if lang == 'perl':
-                dep = lang + '-' + module.replace('::', '-')
+            if deptype == 'perl':
+                # transform into a cygwin package name
+                dep = deptype + '-' + module.replace('::', '-')
                 build_deps.add(dep)
+            elif deptype == 'pkgconfig':
+                # a dependency on the package which contains module.pc
+                module = module + '.pc'
+                if module in pkgconfig_map:
+                    dep = pkgconfig_map[module]
+                    logging.info('mapping pkgconfig %s to %s' % (module, ','.join(sorted(dep))))
+                    build_deps.update(dep)
+                else:
+                    logging.warning('could not map pkgconfig %s to a package' % (module))
+                # also implies a dependency on pkg-config
+                build_deps.add('pkg-config')
             else:
-                logging.warning('DEPEND atom of unhandled type %s' % lang)
+                logging.warning('DEPEND atom of unhandled type %s, module %s' % (deptype, module))
         # otherwise, it is simply a cygwin package name
         else:
             build_deps.add(atom)
