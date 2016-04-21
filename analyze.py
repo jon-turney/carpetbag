@@ -171,10 +171,6 @@ def depends_from_hints(srcpkg, indir):
     if 'libgpgme-devel' in build_deps:
         build_deps.add('libgpg-error-devel')
 
-    # XXX: force gettext-devel to be installed, as cygport currently has a bug
-    # which causes it to silently exit if it's not present...
-    build_deps.add('gettext-devel')
-
     logging.info('build dependencies (guessed): %s' % (','.join(sorted(build_deps))))
 
     return build_deps
@@ -239,7 +235,9 @@ def depends_from_cygport(content):
 per_package_deps = {
     'gcc': ['gcc-ada'],  # gnat is required to build gnat
     'git': ['bash-completion-devel'],   # needs updating for separate -devel package
-    'gobject-introspection' : ['flex'],
+    'gobject-introspection': ['flex'],
+    'httpd': ['libgdbm-devel'], # not sure why gdb doesn't appear in runtime deps ?
+    'isoquery': ['po4a', 'python-docutils'],
     'maxima': ['recode', 'clisp'],
     'mingw64-i686-fftw3' : ['mingw64-i686-gcc-fortran'],
     'mingw64-x86_64-fftw3' : ['mingw64-x86_64-gcc-fortran'],
@@ -250,6 +248,11 @@ per_package_deps = {
 def depends_from_database(srcpkg, indir):
     p = os.path.split(indir)[1]
     build_deps = per_package_deps.get(p, [])
+
+    # XXX: force gettext-devel to be installed, as cygport currently has a bug
+    # which causes it to silently exit if it's not present...
+    build_deps.append('gettext-devel')
+
     logging.info('build dependencies (hardcoded for this package): %s' % (','.join(sorted(build_deps))))
     return frozenset(build_deps)
 
@@ -277,7 +280,7 @@ def depends_from_depend(depend):
                 module = module + '.pc'
                 if module in pkgconfig_map:
                     dep = pkgconfig_map[module]
-                    logging.info('mapping pkgconfig %s to %s' % (module, ','.join(sorted(dep))))
+                    logging.info('mapping %s -> %s' % (module, ','.join(sorted(dep))))
                     build_deps.update(dep)
                 else:
                     logging.warning('could not map pkgconfig %s to a package' % (module))

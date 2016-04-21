@@ -52,7 +52,8 @@ def datadiff(a, b):
 
 def verify_archive(af, bf):
     with tarfile.open(af) as a, tarfile.open(bf) as b:
-        al = a.getnames()
+        # we want to ignore .sig files in source packages...
+        al = [f for f in a.getnames() if not f.endswith('.sig')]
         bl = b.getnames()
         if al != bl:
             logging.warning(datadiff(al, bl))
@@ -77,10 +78,10 @@ def verify(indir, outdir):
     outdirtree = capture_dirtree(outdir)
 
     # make a copy of indirtree, but replace .bz|.gz|.lzma extensions with .xz,
-    # the current compression and remove .sig files
+    # the current compression
     canonindirtree = {}
     for p in indirtree:
-        canonindirtree[p] = [re.sub('.(bz2|gz|lzma)$', '.xz', f) for f in indirtree[p] if not f.endswith('.sig')]
+        canonindirtree[p] = [re.sub('.(bz2|gz|lzma)$', '.xz', f) for f in indirtree[p]]
 
     if canonindirtree != outdirtree:
         logging.warning('file manifests are different')

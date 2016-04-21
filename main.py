@@ -168,7 +168,7 @@ def pull_queue_thread():
 # look for pending items in database
 def pending_work():
     conn = sqlite3.connect(os.path.join(carpetbag_root, 'carpetbag.db'))
-    pending = list(conn.execute("SELECT id, srcpkg FROM jobs WHERE status = 'pending'"))
+    pending = list(conn.execute("SELECT id, srcpkg FROM jobs WHERE status = 'pending'"))[:1]
     for jobid, name in pending:
         built = False
         valid = None
