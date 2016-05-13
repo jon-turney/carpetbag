@@ -111,7 +111,7 @@ def pull_queue():
         remote='jon@tambora:/sourceware/cygwin-staging/queue/'
     else:
         # key should be restricted in authorized_keys with:
-        #  'command="$HOME/bin/rrsync /sourceware/cygwin-staging/queue,no-agent-forwarding,no-port-forwarding,no-pty,no-user-rc,no-X11-forwardingh'
+        #  'command="$HOME/bin/rrsync /sourceware/cygwin-staging/queue,no-agent-forwarding,no-port-forwarding,no-pty,no-user-rc,no-X11-forwarding'
         #
         # the key needs to belong to an account which has permissions to remove
         # files from that directory
@@ -260,4 +260,4 @@ logging.info('uploaded files will be in %s' % (UPLOADS))
 dirq.purge(1, 1)
 
 threading.Thread(target=pull_queue_thread).start()
-threading.Thread(target=pending_work_thread).start()
+pending_work_thread()

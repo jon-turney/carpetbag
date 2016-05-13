@@ -41,12 +41,14 @@ debug = False
 BASE_VMID = {
     'x86_64': 'virtio',
     'x86':    'virtio',
+    'noarch': 'virtio',
 }
 
 # path to bash, for each arch
 bash_path = {
     'x86_64': r'C:\\cygwin64\\bin\\bash.exe',
     'x86':    r'C:\\cygwin\\bin\\bash.exe',
+    'noarch': r'C:\\cygwin64\\bin\\bash.exe',
 }
 
 #

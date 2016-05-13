@@ -57,18 +57,31 @@ def analyze(srcpkg, indir):
                 fn = cygports[0].name
                 f = tf.extractfile(cygports[0])
                 content = f.read().decode()
+
+                # fold any line-continuations
+                content = re.sub(r'\\\n', '', content)
+
                 # does it have a DEPEND line?
-                match = re.search('^DEPEND=\s*"(.*?)"', content, re.MULTILINE | re.DOTALL)
-                if match:
+
+                # XXX: Note that this only approximates the value of DEPEND.
+                # The only accurate way to evaluate it is to execute the
+                # cygport, but doing so on the host seems contra-indicated.
+                depend = ''
+                for l in content.splitlines():
+                    match = re.match(r'^\s*DEPEND(?:\+|)=\s*"(.*?)"', l)
+                    if match:
+                        depend += match.group(1) + ' '
+
+                if depend:
                     logging.info('srcpkg contains cygport %s, with DEPEND' % fn)
-                    depends = set.union(depends_from_depend(match.group(1)),
-                                        depends_from_database(srcpkg, indir))
+                    depends = set.union(depends_from_depend(depend),
+                                        depends_from_hardcoded(srcpkg, indir))
                     return PackageKind('cygport-with-depends', script=fn, depends=','.join(sorted(depends)))
                 else:
                     logging.info('srcpkg contains cygport %s' % fn)
                     depends = set.union(depends_from_hints(srcpkg, indir),
                                         depends_from_cygport(content),
-                                        depends_from_database(srcpkg, indir))
+                                        depends_from_hardcoded(srcpkg, indir))
                     return PackageKind('cygport-guessed-depends', script=fn, depends=','.join(sorted(depends)))
 
             # if there's no cygport file, we look for a g-b-s style .sh file instead
@@ -88,7 +101,7 @@ def analyze(srcpkg, indir):
                 logging.info('srcpkg contains a %s-style build script %s' % (kind, fn))
                 depends = set.union(depends_from_hints(srcpkg, indir),
                                     depends_from_cygbuild(),
-                                    depends_from_database(srcpkg, indir))
+                                    depends_from_hardcoded(srcpkg, indir))
                 return PackageKind(kind, script=fn, depends=','.join(sorted(depends)))
             elif len(scripts) > 1:
                 logging.error('too many scripts in srcpkg %s', srcpkg)
@@ -230,28 +243,21 @@ def depends_from_cygport(content):
 # look up build depends in a list we keep
 #
 
-# XXX: put this in a separate file
-# XXX: should regex match on package name
-per_package_deps = {
-    'gcc': ['gcc-ada'],  # gnat is required to build gnat
-    'git': ['bash-completion-devel'],   # needs updating for separate -devel package
-    'gobject-introspection': ['flex'],
-    'httpd': ['libgdbm-devel'], # not sure why gdb doesn't appear in runtime deps ?
-    'isoquery': ['po4a', 'python-docutils'],
-    'maxima': ['recode', 'clisp'],
-    'mingw64-i686-fftw3' : ['mingw64-i686-gcc-fortran'],
-    'mingw64-x86_64-fftw3' : ['mingw64-x86_64-gcc-fortran'],
-    'mutt': ['libxslt','docbook-xsl'],  # to build docbook documentation
-    'perl-Unicode-LineBreak': ['libcrypt-devel'], # perl CORE dependency
-}
+per_package_deps = eval(open('per-package-deps').read())
 
-def depends_from_database(srcpkg, indir):
+def depends_from_hardcoded(srcpkg, indir):
+    build_deps = set()
+
     p = os.path.split(indir)[1]
-    build_deps = per_package_deps.get(p, [])
+
+    # if regex matches package name, add the listed deps
+    for i in per_package_deps:
+        if re.match(i, p):
+            build_deps.update(per_package_deps[i])
 
     # XXX: force gettext-devel to be installed, as cygport currently has a bug
     # which causes it to silently exit if it's not present...
-    build_deps.append('gettext-devel')
+    build_deps.add('gettext-devel')
 
     logging.info('build dependencies (hardcoded for this package): %s' % (','.join(sorted(build_deps))))
     return frozenset(build_deps)
@@ -271,8 +277,12 @@ def depends_from_depend(depend):
         if match:
             deptype = match.group(1)
             module = match.group(2)
-            if deptype == 'perl':
+            if deptype == 'girepository':
                 # transform into a cygwin package name
+                dep = deptype + '-' + module
+                build_deps.add(dep)
+            elif deptype == 'perl':
+                 # transform perl module name into a cygwin package name
                 dep = deptype + '-' + module.replace('::', '-')
                 build_deps.add(dep)
             elif deptype == 'pkgconfig':

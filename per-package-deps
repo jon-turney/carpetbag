@@ -1,0 +1,17 @@
+{
+    r'^cppcheck$': ['libxslt', 'docbook-xsl'],  # to build manpage
+    r'^fish$': ['libiconv-devel', 'libncursesw-devel'],   # dynamically computed DEPEND
+    r'^gcc$': ['gcc-ada'],  # gnat is required to build gnat
+    r'^git$': ['bash-completion-devel'],   # needs updating for separate -devel package
+    r'^gobject-introspection$': ['flex'],
+    r'^httpd$': ['libgdbm-devel'], # not sure why gdbm doesn't appear in runtime deps ?
+    r'^isoquery$': ['po4a', 'python-docutils'],
+    r'^maxima$': ['recode', 'clisp'],
+    r'^mingw64-i686-fftw3$': ['mingw64-i686-gcc-fortran'],
+    r'^mingw64-x86_64-fftw3$': ['mingw64-x86_64-gcc-fortran'],
+    r'^mkvtoolnix$': ['ruby'],
+    r'^mutt$': ['libxslt','docbook-xsl'],  # to build docbook documentation
+    r'^perl-.*$': ['libcrypt-devel'], # perl CORE dependency
+    r'^unison\d*\.\d*$': ['ocaml'],
+    r'^vim$': ['lua'],
+}
